@@ -48,3 +48,30 @@ def rotate(K: Tensor, X: Tensor, Y: Tensor) -> Spectrum:
     X_rot = U.T @ X
     Y_rot = U.T @ Y
     return Spectrum(s=s, U=U, X_rot=X_rot, Y_rot=Y_rot)
+
+
+def nLLeval(
+    delta: float | Tensor,
+    s: Tensor,
+    X_rot: Tensor,
+    y_rot: Tensor) -> Tensor:
+    """
+    PORT IS DONE!
+    Profiled -2*loglik at a given delta = sigma2_e / sigma2_g (lmm.py at 348 LMM.nLLeval, ML branch)
+    With Sd = s + delta the math is:
+        beta_hat = (X~ᵀ diag(1/Sd) X~)⁻¹ X~ᵀ diag(1/Sd) y~
+        sigma2_g = (y~ - X~ beta)ᵀ diag(1/Sd) (y~ - X~ beta) / N
+        -2*loglik = N (log(2*pi*sigma2_g) + 1) + sum log(Sd)
+    Vectorising the loss across a (G grid x P pheno) tensor, the per-pheno call is fine while there's no scan yet
+    """
+    N, _ = X_rot.shape
+    Sd = s + delta
+    w = 1.0 / Sd
+    WX = w.unsqueeze(-1) * X_rot
+    A = WX.T @ X_rot
+    Xy = WX.T @ y_rot
+    beta = torch.linalg.solve(A, Xy)
+    rWr = (y_rot * w * y_rot).sum() - (Xy * beta).sum()
+    sigma2_g = rWr / N
+    log2pi = torch.log(torch.tensor(2.0 * torch.pi, dtype=s.dtype, device=s.device))
+    return N * (log2pi + sigma2_g.log() + 1.0) + Sd.log().sum()
