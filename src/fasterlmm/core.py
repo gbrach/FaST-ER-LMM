@@ -65,13 +65,13 @@ def nLLeval(
     Vectorising the loss across a (G grid x P pheno) tensor, the per-pheno call is fine while there's no scan yet
     """
     N, _ = X_rot.shape
-    Sd = s + delta
-    w = 1.0 / Sd
-    WX = w.unsqueeze(-1) * X_rot
-    A = WX.T @ X_rot
-    Xy = WX.T @ y_rot
-    beta = torch.linalg.solve(A, Xy)
-    rWr = (y_rot * w * y_rot).sum() - (Xy * beta).sum()
-    sigma2_g = rWr / N
+    Sd = s + delta  # diagonal of V in the rotated basis (V = sigma2_g (diag(s) + delta I))
+    w = 1.0 / Sd  # 1/(s+delta) is the diagonal of V⁻¹, acts as a per-strain weight in the WLS below
+    WX = w.unsqueeze(-1) * X_rot  # weighted rotated design, cached because A and Xy both need it
+    A = WX.T @ X_rot  # A = X~ᵀ V⁻¹ X~
+    Xy = WX.T @ y_rot  # X~ᵀ V⁻¹ y~, the right-hand side of the normal equation A beta = Xy
+    beta = torch.linalg.solve(A, Xy)  # beta_hat = A⁻¹ Xy, fixed-effect estimate at this delta
+    rWr = (y_rot * w * y_rot).sum() - (Xy * beta).sum()  # residual SS in V-metric, identity avoids forming y - X beta
+    sigma2_g = rWr / N  # MLE of sigma2_g with beta profiled out, ML uses N
     log2pi = torch.log(torch.tensor(2.0 * torch.pi, dtype=s.dtype, device=s.device))
-    return N * (log2pi + sigma2_g.log() + 1.0) + Sd.log().sum()
+    return N * (log2pi + sigma2_g.log() + 1.0) + Sd.log().sum()  # -2 loglik, +1 from profiling sigma2_g back in, sum log(Sd) is log det V
