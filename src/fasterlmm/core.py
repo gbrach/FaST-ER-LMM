@@ -6,8 +6,11 @@ To port from lmm.py: LMM.setG/setK (eigendecomp + caching), plus LMM.findH2 + LM
 
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from torch import Tensor
+
+from fasterlmm.io import grm, standardise_columns
 
 
 @dataclass
@@ -138,3 +141,30 @@ def snp_wald_scan(spectrum: Spectrum,
     rss_full = torch.clamp(rWr - num * num / denom, min=1e-300)  # SSE under the alt = null SSE - beta_s * num
     var_beta = rss_full / (N - C - 1) / denom
     return (beta * beta) / var_beta  # F(1, N-C-1) statistic per SNP
+
+
+def loco_scan(Z: Tensor,
+              X: Tensor,
+              Y: Tensor,
+              chrom: np.ndarray,
+              p: int = 0) -> Tensor:
+    """
+    PORT IS DONE!
+    Leave-One-Chromosome-Out scan, ports the LocoGwas path in single_snp.py (_internal_single_snp_LocoGwas around line 1100)
+    For each chromosome c the kinship is rebuilt without c, refit delta, then test c-only SNPs:
+      - K_loco = Z[:, chrom != c] @ Z[:, chrom != c].T / (M - M_c)
+      - rotate X, Y into K_loco's eigenbasis, refit log delta against the c-excluded kernel
+      - snp_wald_scan on c's SNPs (also rotated by U_loco.T)
+    fastlmm wraps this in a LocoGwas class that drives a SnpReader subset.  Looping chromosomes here is fewer moving parts and lets the gpu chew throught the per-chrom eigh wihtout going back through pysnptools
+    Z is expected pre-standardised (use io.standardise_columns first), single-pheno for now
+    """
+    f_out = torch.zeros(Z.shape[1], dtype=Z.dtype, device=Z.device)
+    for c in sorted(np.unique(chrom).tolist()):
+        kin_mask = chrom != c
+        test_mask = chrom == c
+        K = grm(Z[:, kin_mask])  # K_loco for this chromosome
+        spec = rotate(K, X, Y)
+        log_delta = fit_delta_grid(spec, p=p)
+        S_rot = spec.U.T @ Z[:, test_mask]  # test SNPs in the new eigenbasis
+        f_out[test_mask] = snp_wald_scan(spec, log_delta, S_rot, p=p)
+    return f_out
