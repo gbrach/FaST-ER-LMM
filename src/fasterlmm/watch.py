@@ -19,8 +19,8 @@ from fasterlmm._tui import render_status
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="fasterlmm-watch",
-                                     description="live TUI for a running fasterlmm-gwas job")
+    parser = argparse.ArgumentParser(prog="fasterlmm watch",
+                                     description="live TUI for a running fasterlmm gwas job")
     parser.add_argument("status_file", help="path to the status.json written by fasterlmm-gwas")
     parser.add_argument("--poll-sec", type=float, default=0.5, help="seconds betwen polls")
     args = parser.parse_args()

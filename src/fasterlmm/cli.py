@@ -19,7 +19,7 @@ from fasterlmm.progress import write_status
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="fasterlmm-gwas", description="torch port of fastlmm GWAS with LOCO + perm threshold")
+    parser = argparse.ArgumentParser(prog="fasterlmm gwas", description="torch port of fastlmm GWAS with LOCO + perm threshold")
     parser.add_argument("--geno", required=True, help="plink BED prefix")
     parser.add_argument("--pheno", required=True, help="wide phen tsv with Strain column")
     parser.add_argument("--covar", default=None, help="plink-style .cov (optional)")
@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument("--pheno-idx", type=int, default=0, help="0-based pheno column to scan")
     parser.add_argument("--n-perm", type=int, default=100, help="permutation count for the threshold")
     parser.add_argument("--seed", type=int, default=19930909)
-    parser.add_argument("--device", default="cuda", help="cuda, cuda:N, or cpu (cpu is mostly for tiny smoke tests)")
+    parser.add_argument("--device", default="cuda", help="cuda, cuda:N, or cpu (cpu is mostly for tiny sanity checks)")
     args = parser.parse_args()
 
     outdir = Path(args.outdir)
