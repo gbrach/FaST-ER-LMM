@@ -27,7 +27,7 @@ from pysnptools.standardizer import Standardizer, Unit
 from pysnptools.util import create_directory_if_necessary
 from pysnptools.util.intrangeset import IntRangeSet
 from pysnptools.util.mapreduce1 import map_reduce
-
+warnings.filterwarnings("ignore", message="Input line .* contained no data and will not be counted towards `max_rows=.*")
 
 # !!!LATER add warning here (and elsewhere) K0 or K1.sid_count < test_snps.sid_count,
 #  might be a covar mix up.(but only if a SnpKernel
@@ -59,7 +59,7 @@ def single_snp(
     xp=None,
     count_A1=None,
 ):
-    """
+    r"""
     Function performing single SNP GWAS using cross validation over the chromosomes and REML. Will reorder and intersect IIDs as needed.
     (For backwards compatibility, you may use 'leave_out_one_chrom=False' to skip cross validation, but that is not recommended.)
 
@@ -80,9 +80,9 @@ def single_snp(
            Can be any `SnpReader <http://fastlmm.github.io/PySnpTools/#snpreader-snpreader>`_.
            If you give a string, it should be the base name of a set of PLINK Bed-formatted files.
            If leave_out_one_chrom is True, can be a dictionary from chromosome number to any `KernelReader <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelreader>`_
-           or the name a `KernelNpz <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelnpz>`_-formated file.
+           or the name a `KernelNpz <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelnpz>`_-formatted file.
            If leave_out_one_chrom is False, can be any `KernelReader <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelreader>`_ or
-           name of a `KernelNpz <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelnpz>`_-formated file.
+           name of a `KernelNpz <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelnpz>`_-formatted file.
     :type K0: `SnpReader <http://fastlmm.github.io/PySnpTools/#snpreader-snpreader>`_ or a string
            or dictionary or `KernelReader <http://fastlmm.github.io/PySnpTools/#kernelreader-kernelreader>`_)
 
@@ -211,8 +211,8 @@ def single_snp(
 
     For more examples, see:
 
-    * `Main FaST-LMM notebook <https://nbviewer.jupyter.org/github/fastlmm/FaST-LMM/blob/master/doc/ipynb/FaST-LMM.ipynb>`_
-    * `Effect size, multiple phenotypes, and related new features <https://nbviewer.jupyter.org/github/fastlmm/FaST-LMM/blob/master/doc/ipynb/fastlmm2021.ipynb>`_
+    * `Main FaST-LMM notebook <https://github.com/fastlmm/FaST-LMM/blob/master/doc/ipynb/FaST-LMM.ipynb>`_
+    * `Effect size, multiple phenotypes, and related new features <https://github.com/fastlmm/FaST-LMM/blob/master/doc/ipynb/fastlmm2021.ipynb>`_
     """
     #!!!LATER raise error if covar has NaN
     t0 = time.time()
@@ -227,7 +227,6 @@ def single_snp(
 
     xp = pstutil.array_module(xp)
     with patch.dict("os.environ", {"ARRAY_MODULE": xp.__name__}) as _:
-
         assert test_snps is not None, "test_snps must be given as input"
         test_snps = _snps_fixup(test_snps, count_A1=count_A1)
         pheno = _pheno_fixup(pheno, count_A1=count_A1).read()
@@ -763,12 +762,12 @@ def _set_block_size(K0, K1, mixing, GB_goal, force_full_rank, force_low_rank):
 
     try:
         K0.block_size = block_size
-    except:
+    except Exception:
         pass  # ignore
 
     try:
         K1.block_size = block_size
-    except:
+    except Exception:
         pass  # ignore
 
     return K0, K1, block_size
@@ -891,7 +890,6 @@ def _internal_single(
     random_seed,
     xp,
 ):
-
     assert K0 is not None, "real assert"
     assert K1 is not None, "real assert"
     assert block_size is not None, "real assert"
@@ -1053,7 +1051,6 @@ def _find_h2_s_u(
     cache_file,
     runner,
 ):
-
     assert multi_pheno.sid_count >= 1, "Expect at least one phenotype"
     assert (
         isinstance(K1, KernelIdentity) or multi_pheno.sid_count == 1
@@ -1190,7 +1187,6 @@ def _find_h2_s_u_for_one_pheno(
     U,
     xp,
 ):
-
     if S is None:
         K, h2, mixer = _Mixer.combine_the_best_way(
             K0,
@@ -1275,7 +1271,6 @@ def _snp_tester(
     random_seed,
     show_snp_fract_var_exp,
 ):
-
     work_count = -(
         test_snps.sid_count // -block_size
     )  # Find the work count based on batch size (rounding up)
@@ -1504,7 +1499,6 @@ def _find_mixing_from_Gs(G, covar, G0_standardized_val, G1_standardized_val, h2,
         y=y,
         **kwargs,
     ):
-
         if not isinstance(mixing, (int, int, float, complex)):
             assert mixing.ndim == 1 and mixing.shape[0] == 1
             mixing = mixing[0]
@@ -1543,7 +1537,6 @@ def _find_mixing_from_Ks(K, covar, K0_val, K1_val, h2, y, xp):
     resmin = [None]
 
     def f(mixing, K0_val=K0_val, K1_val=K1_val, covar=covar, y=y, **kwargs):
-
         if not isinstance(mixing, (int, int, float, complex)):
             assert mixing.ndim == 1 and mixing.shape[0] == 1
             mixing = mixing[0]
@@ -1634,7 +1627,7 @@ if __name__ == "__main__":
             sid_count = 5 * 1000  # number of SNPs
             cache_top = r"c:\deldir"
             leave_out_one_chrom = False
-            runner = LocalMultiProc(5, just_one_process=False)
+            runner = LocalMultiProc(5, just_one_process=False)  # noqa: F821
 
             if True:
                 test_snps = Bed(
@@ -1656,7 +1649,6 @@ if __name__ == "__main__":
                     test_snps_cache.walk(), None
                 ):  # If no files in the test_snps folder, generate data (takes about 6 hours)
                     from pysnptools.snpreader import SnpGen
-                    from pysnptools.util.mapreduce1.runner import LocalMultiProc
 
                     snpgen = SnpGen(
                         seed=seed,
@@ -1762,7 +1754,6 @@ if __name__ == "__main__":
         )
 
     if False:
-
         logging.basicConfig(level=logging.INFO)
         import doctest
         from unittest.mock import patch
@@ -1777,7 +1768,7 @@ if __name__ == "__main__":
         # and the "SNP" name is "snp1,snp2"
         import os
 
-        os.chdir("D:\OneDrive\Projects\Science")
+        os.chdir(r"D:\OneDrive\Projects\Science")
 
         ###################################
         # Build the similarity matrix with everything except chroms 4 and 5.
