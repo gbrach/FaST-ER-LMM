@@ -1,6 +1,5 @@
 """
 Render helpers for the live watcher TUI
-Building a rich Panel out of a status.json payload.  Splitting render logic out of watch.py becuase the polling loop and the rendering are independant things and the renderer can be exercised on a plain dict with no file io involved
 """
 
 from __future__ import annotations

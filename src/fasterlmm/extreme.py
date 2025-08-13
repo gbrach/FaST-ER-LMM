@@ -26,19 +26,18 @@ def randomized_eigh(Z: Tensor,
     Halko et al SIREV 2011 algorithm 4.4 + 5.3 with n_iter power iterations to sharpen the tail.  Oversampling and droping at the end avoids the noisy boundary eigenpairs
     """
     N, M = Z.shape
-    target = rank + n_oversample
+    target = rank + n_oversample  # extra columns absorb the noisy boundary eigenpairs, dropped at the end
     gen = torch.Generator(device=Z.device).manual_seed(seed)
-    Omega = torch.randn(N, target, generator=gen, device=Z.device, dtype=Z.dtype)
-    Y = (Z @ Z.T) @ Omega / M  # range probe, K @ Omega
+    Omega = torch.randn(N, target, generator=gen, device=Z.device, dtype=Z.dtype)  # Omega ~ N(0, I), random probe
+    Y = (Z @ Z.T) @ Omega / M  # Y = K Omega, captures K's range in random directions
     for _ in range(n_iter):
-        Y = (Z @ (Z.T @ Y)) / M  # subspace iteration to sharpen the leading singular directions
-    Q, _ = torch.linalg.qr(Y)  # orthonormal basis for the captured range, shape (N, target)
-    B = Q.T @ (Z @ Z.T @ Q) / M  # small (target, target) projection of K
-    s_small, U_small = torch.linalg.eigh(B)
+        Y = (Z @ (Z.T @ Y)) / M  # Y <- K Y, subspace iteration sharpens the leading singular directions
+    Q, _ = torch.linalg.qr(Y)  # orthonormal basis Q for the captured range, shape (N, target)
+    B = Q.T @ (Z @ Z.T @ Q) / M  # B = Qᵀ K Q, the small (target, target) restriction of K to range(Q)
+    s_small, U_small = torch.linalg.eigh(B)  # full eigh on B is much cheaper than eigh on K
     s_small = torch.clamp(s_small, min=0.0)
-    # keep top rank, eigh returns ascending so slice from the end
-    idx = torch.argsort(s_small, descending=True)[:rank]
-    return s_small[idx], Q @ U_small[:, idx]
+    idx = torch.argsort(s_small, descending=True)[:rank]  # drop the oversample columns, keep top rank
+    return s_small[idx], Q @ U_small[:, idx]  # lift eigenvectors back to the N-dimensional space via U_K ≈ Q @ U_small
 
 
 def loco_scan_extreme(Z: Tensor,
