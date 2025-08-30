@@ -1,6 +1,6 @@
 """
 fasterlmm gwas command-line entry: plink + phen (+ optional covar) -> per-pheno LOCO scan + perm threshold
-Supports a pheno range (--pheno-start / --pheno-end) as well as multi-gpu sharding (--shard X/N), with an optional one-file parquet output (--bundle)
+Supports a pheno range (--pheno-start / --pheno-end) as well as multi-GPU sharding (--shard X/N), with an optional one-file parquet output (--bundle)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def main() -> None:
     parser.add_argument("--n-perm", type=int, default=100, help="permutation count for the threshold")
     parser.add_argument("--seed", type=int, default=19930909)
     parser.add_argument("--device", default="cuda", help="cuda, cuda:N, or cpu (cpu is mostly for tiny sanity checks)")
-    parser.add_argument("--shard", default=None, help="X/N to process only the X-th of N pheno shards (for slurm-style multi-gpu)")
+    parser.add_argument("--shard", default=None, help="X/N to process only the X-th of N pheno shards (for slurm-style multi-GPU)")
     parser.add_argument("--bundle", action="store_true", help="after scanning, bundle per-pheno gwas.tsv into one parquet")
     args = parser.parse_args()
 

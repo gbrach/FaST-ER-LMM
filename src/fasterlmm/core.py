@@ -31,7 +31,7 @@ class Spectrum:
 def _eigh_with_cpu_fallback(K: Tensor) -> tuple[Tensor, Tensor]:
     """
     Eigh on K's device, falling back to cpu lapack on cuda OOM
-    cuSOLVER's eigh workspace is 3-8x the input.  At large N the workspace OOMs even when K, U, s themselves fit on the gpu.  Shipping K to cpu, calling lapack eigh, and bringing s and U back is slow but it's the only thing that works at the edge
+    cuSOLVER's eigh workspace is 3-8x the input.  At large N the workspace OOMs even when K, U, s themselves fit on the GPU.  Shipping K to cpu, calling lapack eigh, and bringing s and U back is slow but it's the only thing that works at the edge
     """
     try:
         return torch.linalg.eigh(K)
@@ -141,7 +141,7 @@ def fit_delta_grid(spectrum: Spectrum,
                    log_delta_max: float = 10.0) -> Tensor:
     """
     Multi-pheno 1D grid search for log delta, returns shape (P,)
-    Uses _profile_loss vectorised over (G, P), so adding more phenos is basically free until G*N*P stops fitting on the gpu
+    Uses _profile_loss vectorised over (G, P), so adding more phenos is basically free until G*N*P stops fitting on the GPU
     """
     s, X_rot, Y_rot = spectrum.s, spectrum.X_rot, spectrum.Y_rot
     grid = torch.linspace(log_delta_min, log_delta_max, n_grid, dtype=s.dtype, device=s.device)

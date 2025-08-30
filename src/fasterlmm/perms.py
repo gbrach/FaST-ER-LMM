@@ -25,7 +25,7 @@ def perm_threshold(data: AlignedDataset,
     """
     Min-F permutation null distribution for one pheno, all perms in one call
     Stack the real pheno + n_perm permutations as columns of a (N, 1+n_perm) matrix, run loco_scan once across all columns, take the per-column max F.
-    Way faster than the per-perm loop because every perm gets to ride the same eigendecomp and the same gpu matmuls
+    Way faster than the per-perm loop because every perm gets to ride the same eigendecomp and the same GPU matmuls
     Returns (real_F (M,), perm_max_F (n_perm,)).  perm_max_F is the per-perm max F, wich corresponds to the per-perm min p (F and p are monotone-inverse).
     Compare real_F against the empirical quantile of perm_max_F to get the genome-wide threshold
     """

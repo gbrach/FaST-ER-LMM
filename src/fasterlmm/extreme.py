@@ -1,7 +1,7 @@
 """
 Randomised top-r eigendecomposition for big-N kernels
 Full eigh on K = Z Zᵀ is N³.  When N gets into the few-thousand range that's slow, and the top-r eigenpairs are usually enough for the LMM fit since the rest of the spectrum collapses to a flat noise floor
-Halko-Martinsson-Tropp 2011 random projection: K Q ≈ Q (Qᵀ K Q), eigh the small Qᵀ K Q, multiply U back.  Chunked Z streaming for the N x N step is a later add, the in-memory version is fine on a single gpu up to a few thousand strains
+Halko-Martinsson-Tropp 2011 random projection: K Q ≈ Q (Qᵀ K Q), eigh the small Qᵀ K Q, multiply U back.  Chunked Z streaming for the N x N step is a later add, the in-memory version is fine on a single GPU up to a few thousand strains
 """
 
 from __future__ import annotations
