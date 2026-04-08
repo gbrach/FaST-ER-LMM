@@ -102,11 +102,15 @@ def nLLeval(delta: float | Tensor,
 def _profile_loss(log_delta: Tensor,
                   s: Tensor,
                   X_rot: Tensor,
-                  Y_rot: Tensor) -> Tensor:
+                  Y_rot: Tensor,
+                  *,
+                  reml: bool = False) -> Tensor:
     """
     PORT IS DONE!
-    Vectorised -2*loglik on a (G grid x P pheno) tensor, same ML math as nLLeval just broadcast across both axes (lmm.py LMM.nLLeval, ML branch)
-    Returns shape (G, P).  Replaces the per-pheno python loop in fit_delta_grid -- perms drag in hundreds of pheno columns so the loop was the bottleneck
+    Vectorised -2*loglik on a (G grid x P pheno) tensor, same algebra as nLLeval just broadcast across both axes (lmm.py LMM.nLLeval). ->> Returns shape (G, P)
+    reml=False (default) is the ML branch.
+    reml=True adds the X-side penalty term log det A and divides by (N - C) instead of N, same as fastlmm's REML
+    Replaces the per-pheno python loop in fit_delta_grid since perms drag in hundreds of pheno columns and the loop was the bottleneck
     """
     N, C = X_rot.shape
     delta = log_delta.exp()  # (G,) deltas in linear scale
@@ -114,23 +118,67 @@ def _profile_loss(log_delta: Tensor,
     w = 1.0 / Sd  # w[g, n] = 1/Sd[g, n], per-strain weight in the WLS for grid point g
     WX = w.unsqueeze(2) * X_rot.unsqueeze(0)  # WX[g, n, c] = w[g, n] * X_rot[n, c], cached weighted design
     A = torch.einsum("gnc,nd->gcd", WX, X_rot)  # A[g] = X~ᵀ V⁻¹ X~, the (C, C) Gram per grid point
-    # cholesky_ex returns an info code rather than raising.  At extreme deltas A can drift non-PD on a few grid points, masking the bad rows with identity keeps cholesky_solve finite for the good rows and the bad rows get +inf loss at the end so argmin never picks them
     L, info = torch.linalg.cholesky_ex(A)
-    bad_g = info > 0  # (G,)
+    bad_g = info > 0
     if bad_g.any():
         eye = torch.eye(C, device=A.device, dtype=A.dtype).expand_as(L)
         L = torch.where(bad_g.view(-1, 1, 1), eye, L)
+    logdet_A = 2.0 * torch.diagonal(L, dim1=-2, dim2=-1).log().sum(-1)  # (G,), needed for the REML penalty
     u = torch.einsum("gnc,np->gcp", WX, Y_rot)  # u[g, c, p] = X~ᵀ V⁻¹ Y_rot, rhs of the normal eqs
     beta_x = torch.cholesky_solve(u, L)  # beta_hat[g, c, p] = A⁻¹ u, fixed-effect estimates
-    uAu = (u * beta_x).sum(dim=1)  # uAu[g, p] = uᵀ A⁻¹ u = sum_c u[g, c, p] * beta_x[g, c, p]
-    yWy = w @ (Y_rot * Y_rot)  # yWy[g, p] = sum_n w[g, n] * Y_rot[n, p]², gemm avoids a (G, N, P) tensor
-    rWr = torch.clamp(yWy - uAu, min=1e-300)  # rWr = yWy - uAu = (y~ - X~ beta)ᵀ V⁻¹ (y~ - X~ beta)
-    sigma2 = rWr / N  # sigma2_g_hat at this (g, pheno), ML divides by N
-    sum_log_Sd = Sd.log().sum(dim=1)  # log det V at sigma2=1: sum_n log Sd[g, n]
+    uAu = (u * beta_x).sum(dim=1)  # uAu[g, p] = uᵀ A⁻¹ u
+    yWy = w @ (Y_rot * Y_rot)  # yWy[g, p] = sum_n w[g, n] * Y_rot[n, p]²
+    rWr = torch.clamp(yWy - uAu, min=1e-300)  # rWr = (y~ - X~ beta)ᵀ V⁻¹ (y~ - X~ beta)
+    sum_log_Sd = Sd.log().sum(dim=1)  # log det V at sigma2=1
     log2pi = torch.log(torch.tensor(2.0 * torch.pi, dtype=s.dtype, device=s.device))
-    loss = N * (log2pi + sigma2.log() + 1.0) + sum_log_Sd.unsqueeze(1)  # (G, P)
+    if reml:
+        sigma2 = rWr / (N - C)
+        loss = (N - C) * (log2pi + sigma2.log() + 1.0) + sum_log_Sd.unsqueeze(1) + logdet_A.unsqueeze(1)
+    else:
+        sigma2 = rWr / N
+        loss = N * (log2pi + sigma2.log() + 1.0) + sum_log_Sd.unsqueeze(1)
     if bad_g.any():
         loss = torch.where(bad_g.unsqueeze(1), torch.full_like(loss, float("inf")), loss)
+    return loss
+
+
+def _profile_loss_per_pheno(log_delta: Tensor,
+                            s: Tensor,
+                            X_rot: Tensor,
+                            Y_rot: Tensor,
+                            *,
+                            reml: bool = False) -> Tensor:
+    """
+    Per-pheno _profile_loss for the golden-section refinment: one log_delta value per pheno, returns (P,)
+    Same algebra as _profile_loss but the grid axis is replaced by the pheno axis, so each pheno evaluates only its own log delta.  Way cheaper than rebuilding a (G, P) grid just to read one column per pheno
+    """
+    N, C = X_rot.shape
+    delta = log_delta.exp()  # (P,)
+    Sd = s.unsqueeze(0) + delta.unsqueeze(1)  # (P, N)
+    w = 1.0 / Sd
+    WX = w.unsqueeze(2) * X_rot.unsqueeze(0)  # (P, N, C)
+    A = torch.einsum("pnc,nd->pcd", WX, X_rot)  # (P, C, C)
+    L, info = torch.linalg.cholesky_ex(A)
+    bad_p = info > 0
+    if bad_p.any():
+        eye = torch.eye(C, device=A.device, dtype=A.dtype).expand_as(L)
+        L = torch.where(bad_p.view(-1, 1, 1), eye, L)
+    logdet_A = 2.0 * torch.diagonal(L, dim1=-2, dim2=-1).log().sum(-1)  # (P,)
+    u = torch.einsum("pnc,np->pc", WX, Y_rot)  # (P, C)
+    beta_x = torch.cholesky_solve(u.unsqueeze(-1), L).squeeze(-1)  # (P, C)
+    uAu = (u * beta_x).sum(dim=1)  # (P,)
+    yWy = (w * Y_rot.T * Y_rot.T).sum(dim=1)  # (P,)
+    rWr = torch.clamp(yWy - uAu, min=1e-300)
+    sum_log_Sd = Sd.log().sum(dim=1)  # (P,)
+    log2pi = torch.log(torch.tensor(2.0 * torch.pi, dtype=s.dtype, device=s.device))
+    if reml:
+        sigma2 = rWr / (N - C)
+        loss = (N - C) * (log2pi + sigma2.log() + 1.0) + sum_log_Sd + logdet_A
+    else:
+        sigma2 = rWr / N
+        loss = N * (log2pi + sigma2.log() + 1.0) + sum_log_Sd
+    if bad_p.any():
+        loss = torch.where(bad_p, torch.full_like(loss, float("inf")), loss)
     return loss
 
 
@@ -138,15 +186,41 @@ def fit_delta_grid(spectrum: Spectrum,
                    *,
                    n_grid: int = 64,
                    log_delta_min: float = -10.0,
-                   log_delta_max: float = 10.0) -> Tensor:
+                   log_delta_max: float = 10.0,
+                   refine: bool = True,
+                   reml: bool = False) -> Tensor:
     """
-    Multi-pheno 1D grid search for log delta, returns shape (P,)
-    Uses _profile_loss vectorised over (G, P), so adding more phenos is basically free until G*N*P stops fitting on the GPU
+    Multi-pheno log-delta fit: 64-point grid then optional golden-section refinment, returns (P,)
+    fastlmm's findH2 uses grid + Brent via minimize1D (fastlmm/util/mingrid.py).  Golden-section here gets to ~1e-10 in log delta after 50 iterations.  refine=False just returns the grid argmin if speed matters more than precision
+    reml=False (default) matches the ML branch in _profile_loss, reml=True uses the same REML loss in both the grid and the refinment
     """
     s, X_rot, Y_rot = spectrum.s, spectrum.X_rot, spectrum.Y_rot
     grid = torch.linspace(log_delta_min, log_delta_max, n_grid, dtype=s.dtype, device=s.device)
-    loss = _profile_loss(grid, s, X_rot, Y_rot)  # (G, P)
-    return grid[loss.argmin(dim=0)]  # (P,)
+    loss = _profile_loss(grid, s, X_rot, Y_rot, reml=reml)  # (G, P)
+    idx = loss.argmin(dim=0)  # (P,)
+    if not refine:
+        return grid[idx]
+
+    # vectorised golden-section refinment on [grid[idx-1], grid[idx+1]] per pheno.  50 iters gets to ~1e-10 in log delta wich is way past what the scan needs
+    lo_idx = torch.clamp(idx - 1, 0, n_grid - 1)
+    hi_idx = torch.clamp(idx + 1, 0, n_grid - 1)
+    a = grid[lo_idx].clone()
+    b = grid[hi_idx].clone()
+    inv_phi = 2.0 / (1.0 + 5.0 ** 0.5)
+    inv_phi2 = inv_phi * inv_phi
+    c = a + inv_phi2 * (b - a)
+    d = a + inv_phi  * (b - a)
+    fc = _profile_loss_per_pheno(c, s, X_rot, Y_rot, reml=reml)
+    fd = _profile_loss_per_pheno(d, s, X_rot, Y_rot, reml=reml)
+    for _ in range(50):
+        cond = fc < fd
+        b = torch.where(cond, d, b)
+        a = torch.where(cond, a, c)
+        c = a + inv_phi2 * (b - a)
+        d = a + inv_phi  * (b - a)
+        fc = _profile_loss_per_pheno(c, s, X_rot, Y_rot, reml=reml)
+        fd = _profile_loss_per_pheno(d, s, X_rot, Y_rot, reml=reml)
+    return (0.5 * (a + b)).clamp(log_delta_min, log_delta_max)
 
 
 def snp_wald_scan(spectrum: Spectrum,
