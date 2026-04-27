@@ -225,42 +225,55 @@ def fit_delta_grid(spectrum: Spectrum,
 
 def snp_wald_scan(spectrum: Spectrum,
                   log_delta: Tensor,
-                  S_rot: Tensor) -> Tensor:
+                  S_rot: Tensor,
+                  *,
+                  snp_chunk: int = 4096,
+                  pheno_chunk: int = 256) -> Tensor:
     """
     PORT IS DONE!
     Multi-pheno per-(SNP, pheno) Wald F-stat at the per-pheno fitted log delta, returns (M, P) (lmm.py LMM.getPosteriorWeights + the per-SNP loop in _internal_single_snp around line 1300)
-    Generalises the single-pheno scan to a (P,) log_delta vector, every per-SNP term now broadcasts a P axis.  Way fewer python overhead per perm column than looping snp_wald_scan
+    Generalises the single-pheno scan to a (P,) log_delta vector, every per-SNP term broadcats a P axis.  snp_chunk / pheno_chunk tile both axis so peak memory stays bounded at (pheno_chunk, N, snp_chunk).  On a 32GB V100 with N=1k that handles (256, 4096) comfortbly, bigger N just srhinks the defaults
+    The per-pheno null fit (cholesky_ex on A, beta_x, residual r, rWr) gets computed once per pheno chunk and reused for each SNP chunk insde it
     """
     s, X_rot, Y_rot = spectrum.s, spectrum.X_rot, spectrum.Y_rot
     N, C = X_rot.shape
-    delta = log_delta.exp()  # (P,) deltas in linear scale, one per pheno
+    P = Y_rot.shape[1]
+    M = S_rot.shape[1]
+    out = torch.zeros(M, P, dtype=s.dtype, device=s.device)
+    for p_start in range(0, P, pheno_chunk):
+        p_end = min(p_start + pheno_chunk, P)
+        Y_c = Y_rot[:, p_start:p_end]  # (N, Pc)
+        ld_c = log_delta[p_start:p_end]
+        delta_c = ld_c.exp()  # (Pc,)
 
-    w = 1.0 / (s.unsqueeze(0) + delta.unsqueeze(1))  # w[p, n] = 1/(s[n] + delta[p]), per-pheno V⁻¹ diagonal
-    WX = w.unsqueeze(2) * X_rot.unsqueeze(0)  # WX[p, n, c] = w[p, n] * X_rot[n, c], weighted null design per pheno
-    A = torch.einsum("pnc,nd->pcd", WX, X_rot)  # A[p] = X~ᵀ V⁻¹ X~, the (C, C) Gram per pheno
-    # cholesky_ex tolerates the occasional non-PD A from a poorly-fit delta on a perm column.  Bad rows get identity here and their F-stats end up at zero by the math below, much nicer than the whole batch raising
-    L, info = torch.linalg.cholesky_ex(A)
-    bad_p = info > 0
-    if bad_p.any():
-        eye = torch.eye(C, device=A.device, dtype=A.dtype).expand_as(L)
-        L = torch.where(bad_p.view(-1, 1, 1), eye, L)
-    u = torch.einsum("pnc,np->pc", WX, Y_rot)  # u[p, c] = X~ᵀ V⁻¹ Y_rot[:, p], rhs of per-pheno normal eqs
-    beta_x = torch.cholesky_solve(u.unsqueeze(-1), L).squeeze(-1)  # beta_x[p, c] = A[p]⁻¹ u[p], null beta_X
-    r = Y_rot - X_rot @ beta_x.T  # r[n, p] = Y_rot[n, p] - X_rot[n, :] @ beta_x[p, :], null residual per pheno
-    rWr = (w * r.T * r.T).sum(dim=1)  # rWr[p] = sum_n w[p, n] * r[n, p]², null SS in V-metric
+        w = 1.0 / (s.unsqueeze(0) + delta_c.unsqueeze(1))  # (Pc, N) per-pheno V⁻¹ diagonal
+        WX = w.unsqueeze(2) * X_rot.unsqueeze(0)  # (Pc, N, C)
+        A = torch.einsum("pnc,nd->pcd", WX, X_rot)  # (Pc, C, C)
+        L, info = torch.linalg.cholesky_ex(A)
+        bad_p = info > 0
+        if bad_p.any():
+            eye = torch.eye(C, device=A.device, dtype=A.dtype).expand_as(L)
+            L = torch.where(bad_p.view(-1, 1, 1), eye, L)
+        u = torch.einsum("pnc,np->pc", WX, Y_c)  # (Pc, C)
+        beta_x = torch.cholesky_solve(u.unsqueeze(-1), L).squeeze(-1)  # (Pc, C)
+        r = Y_c - X_rot @ beta_x.T  # (N, Pc) null residual per pheno
+        rWr = (w * r.T * r.T).sum(dim=1)  # (Pc,) null SS in V-metric
+        wr = w * r.T  # (Pc, N) weighted residual, cached across SNP chunks
 
-    B = torch.einsum("pnc,nm->pcm", WX, S_rot)  # B[p, c, m] = X~ᵀ V⁻¹ S~_m for SNP m, pheno p
-    AinvB = torch.cholesky_solve(B, L)  # A[p]⁻¹ B[p], reuses the null fit's L factor per pheno
-    sWs = w @ (S_rot * S_rot)  # sWs[p, m] = sum_n w[p, n] * S_rot[n, m]² = s~_mᵀ V⁻¹ s~_m
-    quad = (B * AinvB).sum(dim=1)  # quad[p, m] = s~_mᵀ V⁻¹ X~ A⁻¹ X~ᵀ V⁻¹ s~_m, X-projection chunk
-    denom = torch.clamp(sWs - quad, min=1e-300)  # denom[p, m] = s~_mᵀ V⁻¹ (I - X-projection) s~_m
-    wr = w * r.T  # wr[p, n] = w[p, n] * r[n, p], weighted residual per pheno
-    num = wr @ S_rot  # num[p, m] = s~_mᵀ V⁻¹ r, numerator of beta_s per (pheno, SNP)
-    beta = num / denom  # beta_s[p, m] = num[p, m] / denom[p, m], MLE of the SNP effect at this pheno's delta
-    rss_full = torch.clamp(rWr.unsqueeze(1) - num * num / denom, min=1e-300)  # SSE under the alt model
-    var_beta = rss_full / (N - C - 1) / denom  # Var(beta_s) at df = N - C - 1 (matches fastlmm's single_snp.py:1415)
-    f_stat = (beta * beta) / var_beta  # F(1, N-C-1) statistic per (pheno, SNP)
-    return f_stat.T  # (M, P)
+        for m_start in range(0, M, snp_chunk):
+            m_end = min(m_start + snp_chunk, M)
+            S_c = S_rot[:, m_start:m_end]  # (N, Mc)
+            B = torch.einsum("pnc,nm->pcm", WX, S_c)  # (Pc, C, Mc)
+            AinvB = torch.cholesky_solve(B, L)  # (Pc, C, Mc)
+            sWs = w @ (S_c * S_c)  # (Pc, Mc)
+            quad = (B * AinvB).sum(dim=1)  # (Pc, Mc)
+            denom = torch.clamp(sWs - quad, min=1e-300)  # (Pc, Mc)
+            num = wr @ S_c  # (Pc, Mc)
+            beta = num / denom
+            rss_full = torch.clamp(rWr.unsqueeze(1) - num * num / denom, min=1e-300)
+            var_beta = rss_full / (N - C - 1) / denom  # df = N - C - 1, matches single_snp.py:1415
+            out[m_start:m_end, p_start:p_end] = ((beta * beta) / var_beta).T
+    return out
 
 
 def loco_scan(Z: Tensor,
