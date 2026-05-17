@@ -1,6 +1,6 @@
 """
 live TUI for a running fasterlmm scan
-pointing it at the outdir gets the per-shard rollup (auto-fanout / slurm-array), pointing at a single status.json gets the legacy one-pane view
+pointing it at the outdir gets the per-shard rollup (auto-dispatch / slurm-array), pointing at a single status.json gets the legacy one-pane view
 dir mode globs status.shard*.json siblings + the top-level status.json as they apear, so the panel fills in as workers come online
 usage:
   fasterlmm watch <outdir>             rollup, one row per shard
@@ -53,7 +53,7 @@ def _discover_shards(outdir: Path) -> dict[int, dict]:
 def _all_done(parent: dict | None, shards: dict[int, dict]) -> bool:
     """
     flagging done when the parent status.json says done, OR when every discovered shard says done and at least one shard exists
-    parent-side covers auto-fanout (the parent writes the finalizer after spawn join), shard-side covers explicit --shard slurm-array where noone writes the parent
+    parent-side covers auto-dispatch (the parent writes the finalizer after spawn join), shard-side covers explicit --shard slurm-array where noone writes the parent
     """
     if parent and parent.get("state") == "done":
         return True

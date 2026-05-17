@@ -106,25 +106,25 @@ def main() -> None:
     parser.add_argument("--pheno-end", type=int, default=None, help="0-based end of a pheno range (exclusive)")
     parser.add_argument("--n-perm", type=int, default=100, help="permutation count for the threshold")
     parser.add_argument("--seed", type=int, default=19930909)
-    parser.add_argument("--device", default="cuda", help="cuda (auto-fanout across visible GPUs), cuda:N (single device), or cpu")
+    parser.add_argument("--device", default="cuda", help="cuda (auto-dispatch across visible GPUs), cuda:N (single device), or cpu")
     parser.add_argument("--shard", default=None, help="X/N to process only the X-th of N pheno shards (explicit, e.g. slurm-array)")
-    parser.add_argument("--no-multi-gpu", action="store_true", help="opt out of auto-fanout when --device cuda sees more than one GPU")
+    parser.add_argument("--no-multi-gpu", action="store_true", help="opt out of auto-dispatch when --device cuda sees more than one GPU")
     parser.add_argument("--bundle", action="store_true", help="after scanning, bundle per-pheno gwas.tsv into one parquet")
     args = parser.parse_args()
 
-    # auto-fanout fires when --device cuda is bare, no --shard, no opt-out, and theres >1 visible GPU
+    # auto-dispatch fires when --device cuda is bare, no --shard, no opt-out, and theres >1 visible GPU
     n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    auto_fanout = (args.device == "cuda"
+    auto_dispatch = (args.device == "cuda"
                    and args.shard is None
                    and not args.no_multi_gpu
                    and n_gpu > 1)
 
-    if auto_fanout:
+    if auto_dispatch:
         # parent manifest up front so the watcher pointed at outdir knows how many shards to wait for, even before any worker has writen its first status
         outdir = Path(args.outdir)
         outdir.mkdir(parents=True, exist_ok=True)
         write_status(str(outdir / "status.json"),
-                     {"state": "fanout", "n_gpu": n_gpu, "shards": list(range(n_gpu))})
+                     {"state": "dispatch", "n_gpu": n_gpu, "shards": list(range(n_gpu))})
         import torch.multiprocessing as mp
         mp.spawn(_spawn_entry, args=(args, n_gpu), nprocs=n_gpu, join=True)
     else:
@@ -139,7 +139,7 @@ def main() -> None:
         _run_scan(args, shard_i=shard_i, shard_n=shard_n, device=device)
 
     if args.shard is None:
-        final: dict = {"state": "done", "n_gpu": n_gpu if auto_fanout else 1}
+        final: dict = {"state": "done", "n_gpu": n_gpu if auto_dispatch else 1}
         if args.bundle:
             # bundle once from the parent (after spawn join) or after the single-shard scan, so the workers dont race the parquet write
             final["bundle"] = str(bundle_outdir(Path(args.outdir)))
