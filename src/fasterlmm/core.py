@@ -299,3 +299,16 @@ def loco_scan(Z: Tensor,
         S_rot = spec.U.T @ Z[:, test_mask]
         f_out[test_mask, :] = snp_wald_scan(spec, log_delta, S_rot)
     return f_out
+
+
+def single_k_scan(Z: Tensor, X: Tensor, Y: Tensor) -> Tensor:
+    """
+    Non-LOCO whole-genome scan: one K from all SNPs, one rotation + delta-fit, one snp_wald_scan over all M
+    Less defensible than LOCO (proximal contamination -- the tested SNP sits in the K it's compared against) but cheaper, occasionally useful for sanity checks or tiny chrom counts where LOCO degenerates
+    Same Z assumptions as loco_scan (pre-standardised)
+    """
+    K = grm(Z)
+    spec = rotate(K, X, Y)
+    log_delta = fit_delta_grid(spec)  # (P,)
+    S_rot = spec.U.T @ Z
+    return snp_wald_scan(spec, log_delta, S_rot)

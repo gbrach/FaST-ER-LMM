@@ -65,9 +65,20 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None,
 
     write_status(status_file, {"state": "scanning", "N": data.Y.shape[0],
                                "M": data.Z.shape[1], "n_pheno": len(pheno_list),
-                               "n_perm": args.n_perm, 
+                               "n_perm": args.n_perm,
                                "shard": f"{shard_i}/{shard_n}" if shard_n else None,
-                               "device": device})
+                               "device": device, "loco": args.loco})
+
+    if args.dry_run:
+        # dry-run lives here (after load + slice, before per-pheno work) so the printed numbers reflect what would actually run -- N/M after intersection, P after pheno slicing + sharding
+        shard_str = f"{shard_i}/{shard_n}" if shard_n is not None else "single"
+        print(f"[dry-run] N={data.Y.shape[0]} M={data.Z.shape[1]} P={len(pheno_list)} "
+              f"n_perm={args.n_perm} loco={args.loco} rint={args.rint} "
+              f"device={device} shard={shard_str} perm_quantile={args.perm_quantile}",
+              flush=True)
+        write_status(status_file, {"state": "dry-run", "n_pheno": len(pheno_list),
+                                   "shard": f"{shard_i}/{shard_n}" if shard_n else None})
+        return
 
     N, C = data.X.shape
     df2 = N - C - 1
@@ -76,18 +87,18 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None,
         sub = outdir / pheno_name
         sub.mkdir(parents=True, exist_ok=True)
         real_F, perm_max_F = perm_threshold(data, p=p, n_perm=args.n_perm,
-                                            seed=args.seed,
+                                            seed=args.seed, loco=args.loco,
                                             status_file=str(sub / "status.json"))
         real_p = ss.f.sf(real_F.cpu().numpy(), 1, df2)  # F -> p once per pheno, scipy on cpu is fine
         perm_min_p = ss.f.sf(perm_max_F.cpu().numpy(), 1, df2)
-        thresh_05 = float(np.quantile(perm_min_p, 0.05))
+        thresh = float(np.quantile(perm_min_p, args.perm_quantile))
         pd.DataFrame({"SNP": data.snp_id,
                       "Chr": data.chrom,
                       "Pos": data.pos,
                       "F": real_F.cpu().numpy(),
                       "PValue": real_p}).to_csv(sub / "gwas.tsv", sep="\t", index=False)
         pd.DataFrame({"perm_min_p": perm_min_p}).to_csv(sub / "perms.tsv", sep="\t", index=False)
-        (sub / "threshold.txt").write_text(f"{thresh_05:.6e}\n")
+        (sub / "threshold.txt").write_text(f"{thresh:.6e}\n")
 
     write_status(status_file, {"state": "done", "n_pheno": len(pheno_list),
                                "shard": f"{shard_i}/{shard_n}" if shard_n else None})
@@ -108,7 +119,11 @@ def main() -> None:
     parser.add_argument("--pheno-idx", type=int, default=None, help="0-based pheno column for a single-pheno scan")
     parser.add_argument("--pheno-start", type=int, default=None, help="0-based start of a pheno range (inclusive)")
     parser.add_argument("--pheno-end", type=int, default=None, help="0-based end of a pheno range (exclusive)")
+    parser.add_argument("--loco", action=argparse.BooleanOptionalAction, default=True,
+                        help="leave-one-chromosome-out, ON by default (use --no-loco to fit one K over all SNPs)")
     parser.add_argument("--n-perm", type=int, default=100, help="permutation count for the threshold")
+    parser.add_argument("--perm-quantile", type=float, default=0.05,
+                        help="quantile of per-perm min-p used as the genome-wide threshold (default 0.05)")
     parser.add_argument("--rint", action=argparse.BooleanOptionalAction, default=True,
                         help="Blom rank-based inverse normal transform on each pheno column, ON by default (use --no-rint to disable)")
     parser.add_argument("--seed", type=int, default=19930909)
@@ -116,14 +131,16 @@ def main() -> None:
     parser.add_argument("--shard", default=None, help="X/N to process only the X-th of N pheno shards (explicit, e.g. slurm-array)")
     parser.add_argument("--no-multi-gpu", action="store_true", help="opt out of auto-dispatch when --device cuda sees more than one GPU")
     parser.add_argument("--bundle", action="store_true", help="after scanning, bundle per-pheno gwas.tsv into one parquet")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="load inputs, print the planned work (N/M/P, n_perm, shards, device), and exit before scanning")
     args = parser.parse_args()
 
     # auto-dispatch fires when --device cuda is bare, no --shard, no opt-out, and theres >1 visible GPU
     n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
     auto_dispatch = (args.device == "cuda"
-                   and args.shard is None
-                   and not args.no_multi_gpu
-                   and n_gpu > 1)
+                     and args.shard is None
+                     and not args.no_multi_gpu
+                     and n_gpu > 1)
 
     if auto_dispatch:
         # parent manifest up front so the watcher pointed at outdir knows how many shards to wait for, even before any worker has writen its first status

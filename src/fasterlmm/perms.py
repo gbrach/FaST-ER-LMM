@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from fasterlmm.core import loco_scan
+from fasterlmm.core import loco_scan, single_k_scan
 from fasterlmm.io import AlignedDataset, standardise_columns
 from fasterlmm.progress import write_status
 
@@ -21,6 +21,7 @@ def perm_threshold(data: AlignedDataset,
                    *,
                    n_perm: int = 100,
                    seed: int = 19930909,
+                   loco: bool = True,
                    status_file: str | None = None) -> tuple[Tensor, Tensor]:
     """
     Min-F permutation null distribution for one pheno, all perms in one call
@@ -42,8 +43,13 @@ def perm_threshold(data: AlignedDataset,
     Y_all = torch.cat([y_real, y_perms], dim=1)  # (N, 1 + n_perm)
 
     if status_file is not None:
-        write_status(status_file, {"pheno": p, "n_perm": n_perm, "state": "scanning all perms in one batch"})
-    F_all = loco_scan(Z_std, X, Y_all, chrom)  # (M, 1 + n_perm)
+        write_status(status_file, {"pheno": p, "n_perm": n_perm,
+                                   "state": "scanning all perms in one batch",
+                                   "loco": loco})
+    if loco:
+        F_all = loco_scan(Z_std, X, Y_all, chrom)  # (M, 1 + n_perm)
+    else:
+        F_all = single_k_scan(Z_std, X, Y_all)  # (M, 1 + n_perm), one K over all SNPs
     if status_file is not None:
         write_status(status_file, {"pheno": p, "perm_done": n_perm, "n_perm": n_perm})
 
