@@ -47,3 +47,48 @@ def render_status(payload: dict[str, Any]) -> Panel:
 
     title = Text(f"fasterlmm watch ({state})", style="bold")
     return Panel(table, title=title, border_style="cyan")
+
+
+def _shard_row(idx: int, payload: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
+    """One row in the rollup, fields picked so the row keeps the same shape across loading -> scanning -> done"""
+    state = payload.get("state", "?")
+    device = payload.get("device", "?")
+    pheno_n = payload.get("n_pheno")
+    pheno_idx = payload.get("pheno_idx")
+    pheno_str = f"{pheno_idx}/{pheno_n}" if pheno_idx is not None and pheno_n else (str(pheno_n) if pheno_n is not None else "-")
+    if "n_perm" in payload:
+        perm_str = f"{payload.get('perm_done', 0)}/{payload['n_perm']}"
+    else:
+        perm_str = "-"
+    return (str(idx), state, device, pheno_str, perm_str, _fmt_ts(payload.get("ts")))
+
+
+def render_multi_status(parent: dict[str, Any] | None, shards: dict[int, dict[str, Any]]) -> Panel:
+    """
+    Per-shard rollup. One flat Table.grid as the Panel body, Group-in-Panel breaks rich Lives height measurement so dont nest
+    Header rows for the parent manifest, blank separator, then one row per discovered shard
+    Rendering even before any shard has reported so the user sees something while torch.multiprocessing is still spawing workers
+    """
+    parent = parent or {}
+    parent_state = parent.get("state", "waiting")
+    n_gpu = parent.get("n_gpu", len(shards) or "?")
+
+    g = Table.grid(padding=(0, 2))
+    # 6 columns to fit the widest shard row, header rows pad the unused cols with empty strings
+    for _ in range(6):
+        g.add_column()
+    g.add_row("[bold cyan]state[/]", str(parent_state), "", "", "", "")
+    g.add_row("[bold cyan]n_gpu[/]", str(n_gpu), "", "", "", "")
+    if "bundle" in parent:
+        g.add_row("[bold cyan]bundle[/]", str(parent["bundle"]), "", "", "", "")
+    g.add_row("[bold cyan]ts[/]", _fmt_ts(parent.get("ts")), "", "", "", "")
+    g.add_row("", "", "", "", "", "")
+    g.add_row("[bold]shard[/]", "[bold]state[/]", "[bold]device[/]", "[bold]pheno[/]", "[bold]perms[/]", "[bold]ts[/]")
+    if shards:
+        for i in sorted(shards):
+            g.add_row(*_shard_row(i, shards[i]))
+    else:
+        g.add_row("-", "no shard status files yet", "-", "-", "-", "-")
+
+    title = Text(f"fasterlmm watch  multi-shard ({parent_state})", style="bold")
+    return Panel(g, title=title, border_style="cyan")
