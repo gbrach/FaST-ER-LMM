@@ -1,5 +1,6 @@
 """
 Phenotype normalisations.  Just RINT (rank-inverse-normal transform) for now -- the workhorse for non-gaussian phenos like raw transcript counts where outliers tank the perm threshold
+Canonical Blom (c=3/8) to match Victor's R helper (workflow/scripts/rank_based_Inverse_Normal_Transformation.R) so this is a drop-in for the starlight pipeline
 """
 
 from __future__ import annotations
@@ -8,27 +9,35 @@ import numpy as np
 from scipy.stats import norm, rankdata
 
 
-def rint(y: np.ndarray, *, ties_method: str = "average") -> np.ndarray:
+def rint_columns(Y: np.ndarray, *,
+                 c: float = 3 / 8, ties: str = "average") -> np.ndarray:
     """
-    Rank-inverse-normal transform.  Ranks per column, scales to (0, 1), pushes through the standard normal quantile
-    Operates along axis 0.  NaNs are preserved (not ranked) and stay NaN in the output
-    Works on 1D or 2D y
+    Per-column Blom RINT.  out = qnorm((rank - c) / (n - 2c + 1)) with c=3/8 by default, ties.method='average' to match R's rank
+    NaNs round-trip (not ranked, stay NaN in the output)
+    Operates along axis 0, accepts 1D or 2D
     """
-    if y.ndim == 1:
-        return _rint_1d(y, ties_method)
-    out = np.full_like(y, np.nan, dtype=np.float64)
-    for j in range(y.shape[1]):
-        out[:, j] = _rint_1d(y[:, j], ties_method)
+    Y = np.asarray(Y, dtype=np.float64)
+    if Y.ndim == 1:
+        return _rint_1d(Y, c, ties)
+    if Y.ndim != 2:
+        raise ValueError(f"rint_columns expects 1D or 2D, got shape {Y.shape}")
+    out = np.full_like(Y, np.nan)
+    for j in range(Y.shape[1]):
+        out[:, j] = _rint_1d(Y[:, j], c, ties)
     return out
 
 
-def _rint_1d(y: np.ndarray, ties_method: str) -> np.ndarray:
-    finite = ~np.isnan(y)
+def _rint_1d(y: np.ndarray, c: float, ties: str) -> np.ndarray:
     out = np.full_like(y, np.nan, dtype=np.float64)
-    if not finite.any():
+    mask = ~np.isnan(y)
+    n = int(mask.sum())
+    if n == 0:
         return out
-    ranks = rankdata(y[finite], method=ties_method)
-    n = finite.sum()
-    quantiles = (ranks - 0.5) / n  # blom-like offset, avoids the -inf / +inf at the edges
-    out[finite] = norm.ppf(quantiles)
+    ranks = rankdata(y[mask], method=ties)
+    out[mask] = norm.ppf((ranks - c) / (n - 2 * c + 1))
     return out
+
+
+# keeping the old name as a thin alias so anything that imported `rint` from the previous (unused) version still works -- can drop later if it stays orphaned
+def rint(y: np.ndarray, *, ties_method: str = "average") -> np.ndarray:
+    return rint_columns(y, ties=ties_method)

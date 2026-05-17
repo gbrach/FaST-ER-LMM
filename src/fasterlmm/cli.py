@@ -15,6 +15,7 @@ import torch
 
 from fasterlmm.bundle import bundle_outdir
 from fasterlmm.io import align_inputs, read_covar, read_phen, read_plink
+from fasterlmm.normalize import rint_columns
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
 
@@ -42,6 +43,9 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None,
 
     geno = read_plink(args.geno)
     pheno = read_phen(args.pheno)
+    if args.rint:
+        # Blom RINT before alignment so the strain order doesn't matter -- rank-then-qnorm is invariant to row permutation but applying here keeps the pipeline short
+        pheno.Y = rint_columns(pheno.Y)
     covar = read_covar(args.covar) if args.covar else None
     data = align_inputs(geno, pheno, covar, dtype=torch.float64)
     if device != "cpu":
@@ -105,6 +109,8 @@ def main() -> None:
     parser.add_argument("--pheno-start", type=int, default=None, help="0-based start of a pheno range (inclusive)")
     parser.add_argument("--pheno-end", type=int, default=None, help="0-based end of a pheno range (exclusive)")
     parser.add_argument("--n-perm", type=int, default=100, help="permutation count for the threshold")
+    parser.add_argument("--rint", action=argparse.BooleanOptionalAction, default=True,
+                        help="Blom rank-based inverse normal transform on each pheno column, ON by default (use --no-rint to disable)")
     parser.add_argument("--seed", type=int, default=19930909)
     parser.add_argument("--device", default="cuda", help="cuda (auto-dispatch across visible GPUs), cuda:N (single device), or cpu")
     parser.add_argument("--shard", default=None, help="X/N to process only the X-th of N pheno shards (explicit, e.g. slurm-array)")
