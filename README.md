@@ -2,6 +2,10 @@
 
 PyTorch port of FaST-LMM ([Lippert et al. 2011, Nat. Methods](https://doi.org/10.1038/nmeth.1681), [github](https://github.com/fastlmm/FaST-LMM)).
 
+<p align="center">
+  <img src=".assets/gif_truth_1g_vs_2g.gif" width="780" alt="side-by-side watcher replay of the same scan on 1 vs 2 GPUs">
+</p>
+
 ## How to install install the environment?
 Fresh mamba/conda environment recommended!
 
@@ -73,7 +77,36 @@ srun -p -c 4 --mem=16G python -c "from fasterlmm.bundle import bundle_outdir; bu
 ```bash
 fasterlmm watch runs/all/ # one row per shard
 ```
+
 TUI will poll every half second. It will (hopefully...) discover `status.shard*.json` files and show per-shard infos (state, device, pheno idx, perm count)
+
+## How does it compare?
+
+Same input PLINK + pheno TSV, LOCO, 100 permutations. FastLMM baseline is ran on 12 parallel workers, 10CPUs each. FaST-ER-LMM is running on one or two old V100S-32GB GPUs.
+
+### Per-pheno speedup according to the number of samples N
+
+<p align="center">
+  <img src=".assets/fig_speedup_vs_N.png" width="780" alt="per-pheno speedup over fastlmm: 1 and 2 GPUs across N from 500 to 10000">
+</p>
+
+Compared to our previous pipeline.
+At N=1000 it's already ~1.5k× per pheno on 1 GPU!
+
+###  Correlations against FaSTLMM on the real data
+
+<p align="center">
+  <img src=".assets/fig_correlation_realdata.png" width="780" alt="−log10 p-value scatter, fasterlmm vs fastlmm, on a real yeast scan">
+</p>
+
+### On simulated data:
+
+<p align="center">
+  <img src=".assets/fig_full_usecase.png" width="780" alt="full transcriptome walltime: 1 vs 2 V100S, N from 500 to 10000, M=100k, P=6484">
+</p>
+
+A full yeast-transcriptome scan (P=6484 phenos, M=100k SNPs, N=1000) runs in about 6 minutes on 2 V100S, where the original fastlmm needs ~130 CPU-hours on the same data.
+
 
 ## CLI
 
@@ -144,7 +177,7 @@ with `--bundle`, an extra `gwas_bundle.parquet` lands at the outdir root with ev
 
 ## TODO
 
-- [ ] benchmarks!!
+- [x] benchmarks!!
 - [ ] `gwas-gxe` (GxE / single-K interaction scan)
 - [ ] `gwas-epi` (tier-2 pairwise epistasis, anchor × all-SNPs)
 - [ ] multi-cluster epi-hub orchestration: daemon + per-cluster workers
