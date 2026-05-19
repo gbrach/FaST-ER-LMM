@@ -1,6 +1,13 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".assets/logo_dark.svg">
+    <img src=".assets/logo.svg" width="640" alt="FaST-ER-LMM">
+  </picture>
+</p>
+
 # FaST-ER-LMM
 
-PyTorch port of FaST-LMM ([Lippert et al. 2011, Nat. Methods](https://doi.org/10.1038/nmeth.1681), [github](https://github.com/fastlmm/FaST-LMM)).
+PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM) ([Lippert et al. 2011](https://doi.org/10.1038/nmeth.1681), Nat. Methods).
 
 <p align="center">
   <img src=".assets/gif_truth_1g_vs_2g.gif" width="780" alt="side-by-side watcher replay of the same scan on 1 vs 2 GPUs">
@@ -182,3 +189,12 @@ with `--bundle`, an extra `gwas_bundle.parquet` lands at the outdir root with ev
 - [ ] `gwas-epi` (tier-2 pairwise epistasis, anchor × all-SNPs)
 - [ ] multi-cluster epi-hub orchestration: daemon + per-cluster workers
 - [ ] richer `fasterlmm watch` panes for the multi-shard case (gxe-watch / epi-watch parity)
+- [ ] unit tests? if I ever find some time...
+- [ ] simulations for GxE and epistasis, to validate once implemented
+- [ ] manhattan and qqplots, maybe a `fasterlmm plot` entrypoint that can take the bundle parquet as input. Just need to port my R code to python
+- [ ] bench on H100 and H200! just for fun
+- [ ] MPS support? just for fun
+- [ ] binary phenotypes?
+
+
+

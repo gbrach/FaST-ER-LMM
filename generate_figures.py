@@ -107,8 +107,9 @@ def make_speedup_fig(out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
     plt.savefig(out, dpi=130, bbox_inches="tight")
+    plt.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
-    print(f"[fig] wrote {out}", flush=True)
+    print(f"[fig] wrote {out} (+ pdf)", flush=True)
 
 
 def make_full_usecase_fig(out: Path) -> None:
@@ -153,8 +154,9 @@ def make_full_usecase_fig(out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
     plt.savefig(out, dpi=130, bbox_inches="tight")
+    plt.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
-    print(f"[fig] wrote {out}", flush=True)
+    print(f"[fig] wrote {out} (+ pdf)", flush=True)
 
 
 def make_correlation_realdata_fig(out: Path, npz_path: Path = CORR_NPZ) -> None:
@@ -317,8 +319,9 @@ def make_correlation_realdata_fig(out: Path, npz_path: Path = CORR_NPZ) -> None:
                  fontsize=14, fontweight="bold")
     out.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out, dpi=130, bbox_inches="tight")
+    plt.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
-    print(f"[fig] wrote {out}", flush=True)
+    print(f"[fig] wrote {out} (+ pdf)", flush=True)
 
 
 def main() -> int:
