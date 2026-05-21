@@ -1,8 +1,8 @@
 """
 Permutation thresholds for GWAS p-values
-Shuffle y against the genotypes N times, rerun LOCO, keep min(p) per shuffle.
+Shuffle y against the genotypes n_perm times, rerun LOCO, keep min(p) per shuffle.
 The empirical 5% quantile of those min p-values is the genome-wide significance threshold under "no association".
-Putting perms into the same pipeline  so a single fasterlmm-gwas call gives real-Fs + perm threshold all together
+A batch of real phenos plus all their permutation columns ride one scan together, so the per-chromosome eigendecomposition is paid once for the whole batch rather than once per pheno -- that is where the speed comes from
 """
 
 from __future__ import annotations
@@ -11,48 +11,48 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from fasterlmm.core import loco_scan, single_k_scan
+from fasterlmm.core import ScanResult, loco_scan, single_k_scan
 from fasterlmm.io import AlignedDataset, standardise_columns
-from fasterlmm.progress import write_status
 
 
 def perm_threshold(data: AlignedDataset,
-                   p: int = 0,
+                   pheno_idx: list[int],
                    *,
                    n_perm: int = 100,
                    seed: int = 19930909,
                    loco: bool = True,
-                   status_file: str | None = None) -> tuple[Tensor, Tensor]:
+                   on_chrom=None) -> tuple[ScanResult, Tensor]:
     """
-    Min-F permutation null distribution for one pheno, all perms in one call
-    Stack the real pheno + n_perm permutations as columns of a (N, 1+n_perm) matrix, run loco_scan once across all columns, take the per-column max F.
-    Way faster than the per-perm loop because every perm gets to ride the same eigendecomp and the same GPU matmuls
-    Returns (real_F (M,), perm_max_F (n_perm,)).  perm_max_F is the per-perm max F, wich corresponds to the per-perm min p (F and p are monotone-inverse).
-    Compare real_F against the empirical quantile of perm_max_F to get the genome-wide threshold
+    Min-F permutation null distribution for a whole batch of phenos in one scan
+    Pack the B real phenos and their B * n_perm permutation columns into one (N, B + B*n_perm) matrix, run loco_scan once, slice the per-pheno results back out.
+    The eigendecomposition is genotype-only so it costs the same for one column or fifteen thousand -- batching is what amortizes it across phenos, not just across perms.
+    Each pheno gets its own n_perm independent row-shuffles, the way fastlmm does it -- the rng is seeded per (seed, pheno index) so a pheno sees the same perms no matter which batch it lands in or how phenos-per-job is set.
+    Returns (ScanResult for the B real phenos, perm_max_F (B, n_perm)).  perm_max_F is the per-perm genome max F, monotone-inverse to the per-perm min p.
+    Compare the real F against the empirical quantile of perm_max_F to get the genome-wide threshold
     """
     Z_std = standardise_columns(data.Z)
     X = data.X
     chrom = data.chrom
-    y_real = data.Y[:, p:p+1]  # (N, 1)
+    B = len(pheno_idx)
+    y_real = data.Y[:, pheno_idx]  # (N, B)
     N = y_real.shape[0]
 
-    rng = np.random.default_rng(seed)
-    perm_idx = np.stack([rng.permutation(N) for _ in range(n_perm)], axis=1)  # (N, n_perm)
-    perm_idx_t = torch.from_numpy(perm_idx).long().to(y_real.device)
-    y_perms = torch.gather(y_real.expand(N, n_perm), 0, perm_idx_t)  # (N, n_perm), shuffled y per column
-    Y_all = torch.cat([y_real, y_perms], dim=1)  # (N, 1 + n_perm)
+    # independent permutations: pheno b gets n_perm distinct shuffles of the N rows, rng seeded on
+    # its own column index so its perms are stable regardless of batching.  orders[n, b, j] is the
+    # row that lands in position n of pheno b's j-th shuffle
+    orders = np.empty((N, B, n_perm), dtype=np.int64)
+    for b_pos, p in enumerate(pheno_idx):
+        rng = np.random.default_rng([seed, int(p)])
+        orders[:, b_pos, :] = rng.random((n_perm, N)).argsort(axis=1).T
+    gather_idx = torch.from_numpy(orders).to(y_real.device)  # (N, B, n_perm)
+    y_perms = torch.gather(y_real.unsqueeze(2).expand(N, B, n_perm), 0, gather_idx)
+    y_perms = y_perms.reshape(N, B * n_perm)  # pheno-major: [b0 j0..jP, b1 j0..jP, ...]
+    Y_all = torch.cat([y_real, y_perms], dim=1)  # (N, B + B*n_perm)
 
-    if status_file is not None:
-        write_status(status_file, {"pheno": p, "n_perm": n_perm,
-                                   "state": "scanning all perms in one batch",
-                                   "loco": loco})
     if loco:
-        F_all = loco_scan(Z_std, X, Y_all, chrom)  # (M, 1 + n_perm)
+        res = loco_scan(Z_std, X, Y_all, chrom, n_real=B, on_chrom=on_chrom)
     else:
-        F_all = single_k_scan(Z_std, X, Y_all)  # (M, 1 + n_perm), one K over all SNPs
-    if status_file is not None:
-        write_status(status_file, {"pheno": p, "perm_done": n_perm, "n_perm": n_perm})
+        res = single_k_scan(Z_std, X, Y_all, n_real=B)  # one K over all SNPs
 
-    real_F = F_all[:, 0]
-    perm_max_F = F_all[:, 1:].max(dim=0).values
-    return real_F, perm_max_F
+    perm_max_F = res.max_F[B:].reshape(B, n_perm)  # row b holds pheno b's per-perm genome max F
+    return res, perm_max_F

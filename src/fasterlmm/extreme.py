@@ -65,5 +65,6 @@ def loco_scan_extreme(Z: Tensor,
                         Y_rot=U_top.T @ Y)
         log_delta = fit_delta_grid(spec)
         S_rot = U_top.T @ Z[:, test_mask]
-        f_out[test_mask, :] = snp_wald_scan(spec, log_delta, S_rot)
+        # snp_wald_scan returns a ScanResult now -- the extreme path keeps just the F grid
+        f_out[test_mask, :] = snp_wald_scan(spec, log_delta, S_rot).f
     return f_out
