@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fasterlmm"
-version = "1.1.0"
+version = "1.2.0"
 description = "torch port of FaST-LMM (Lippert et al. 2011, Nat. Methods)"
 requires-python = ">=3.10"
 dependencies = [

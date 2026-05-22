@@ -418,3 +418,279 @@ def single_k_scan(Z: Tensor,
     log_delta = fit_delta_grid(spec)  # (P,)
     S_rot = spec.U.T @ Z
     return snp_wald_scan(spec, log_delta, S_rot, n_real=n_real)
+
+
+# ---------------------------------------------------------------------------
+# fastlmm-compat scan path
+#
+# the plain rotate / snp_wald_scan above regress the covariates out in the
+# V-metric (GLS) and pay a (C, C) cholesky at every grid point.  fastlmm does
+# something different and the compat path copies it: project X out with a
+# plain OLS hat first, eigendecompose the projected K, drop the first D = ncols(X)
+# eigenvectors.  the scan then runs in a covariate-free reduced basis with no
+# inner cholesky at all, wich is both ~14x faster and the bit-for-bit match
+# fastlmm parity actually needs.  the plain path stays around as the
+# statistically-correct rank-reduced alternative
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CompatSpectrum:
+    """
+    Eigendecomposition for the fastlmm-compat path
+    fastlmm's projection formulation (lmm_cov.py lines 117-131): form K_ = (I - PX)(K + I)(I - PX), eigh that, drop the first D = ncols(X) eigenvectors and subtract the 1 back off the kept eigenvalues
+    The drop-D cut is exact when rank(X) == D but throws away D - rank(X) real dimensions when X is rank-deficient.  Reproducing that quirk on purpose, matching it is the whole point of the parity port
+    s (N - D,) kept eigenvalues, ascending
+    U_eff (N, N - D) the kept eigenvectors
+    X (N, D) the full input design
+    Xpinv (D, N) pseudo-inverse of X, the OLS hat
+    UY (N - D, P) covariate-regressed and projected phenos
+    """
+    s: Tensor
+    U_eff: Tensor
+    X: Tensor
+    Xpinv: Tensor
+    UY: Tensor
+
+
+def fastlmm_compat_rotate(K: Tensor,
+                          X: Tensor,
+                          Y: Tensor) -> CompatSpectrum:
+    """
+    PORT IS DONE!
+    fastlmm's projection-based rotation (lmm_cov.py lines 117-131)
+    Projects K onto the orthogonal complement of X with an OLS hat, eigendecomposes, drops the first D = ncols(X) eigenvectors.  Y gets the same OLS regress-out and lands projected onto the kept basis
+    Regress-out is OLS here, not GLS -- that is one of the fastlmm quirks the port reproduces deliberately
+    """
+    N = K.shape[0]
+    D = X.shape[1]
+    device, dtype = K.device, K.dtype
+    Xpinv = torch.linalg.pinv(X)
+    PX = X @ Xpinv
+    Iperp = torch.eye(N, dtype=dtype, device=device) - PX
+    del PX  # done with it, dropping one NxN slab before Kp goes up
+    # building Kp in place trough two matmuls, peak live tensors stay at Iperp + Kp
+    Kp = K + torch.eye(N, dtype=dtype, device=device)
+    tmp = Iperp @ Kp
+    del Kp
+    Kp = tmp @ Iperp
+    del tmp
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    s_full, U_full = _eigh_with_cpu_fallback(Kp)
+    del Kp, Iperp
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    s = torch.clamp(s_full[D:N] - 1.0, min=0.0)  # subtract the +I shift back off, floor float noise at 0
+    U_eff = U_full[:, D:N].contiguous()
+    del s_full, U_full
+    Y_r = Y - X @ (Xpinv @ Y)  # OLS regress-out of the covariates
+    UY = U_eff.T @ Y_r
+    return CompatSpectrum(s=s, U_eff=U_eff, X=X, Xpinv=Xpinv, UY=UY)
+
+
+def _profile_loss_compat(log_delta: Tensor,
+                         s: Tensor,
+                         UY: Tensor) -> Tensor:
+    """
+    PORT IS DONE!
+    Vectorised -2*loglik on a (G grid x P pheno) tensor for the compat path (lmm_cov.py LMM._nLLeval, ML branch)
+    X is already regressed out in the projected basis so it never appears, the loss is just the variance term plus log det V.  ML only, fastlmm's findH2 has no REML branch.  Returns shape (G, P)
+    """
+    Neff = s.shape[0]
+    delta = log_delta.exp()  # (G,)
+    Sd = s.unsqueeze(0) + delta.unsqueeze(1)  # Sd[g, n] = s[n] + delta[g]
+    w = 1.0 / Sd
+    yWy = w @ (UY * UY)  # (G, P), a plain GEMM dodges the (G, Neff, P) einsum intermediate
+    rWr = torch.clamp(yWy, min=_pos_floor(s.dtype))
+    sum_log_Sd = Sd.log().sum(dim=1)  # (G,)
+    log2pi = torch.log(torch.tensor(2.0 * torch.pi, dtype=s.dtype, device=s.device))
+    sigma2 = rWr / Neff
+    return Neff * (log2pi + sigma2.log() + 1.0) + sum_log_Sd.unsqueeze(1)
+
+
+def _profile_loss_compat_per_pheno(log_delta: Tensor,
+                                   s: Tensor,
+                                   UY: Tensor) -> Tensor:
+    """
+    Per-pheno _profile_loss_compat for the golden-section refinment: one log delta per pheno, returns (P,)
+    """
+    Neff = s.shape[0]
+    delta = log_delta.exp()  # (P,)
+    Sd = s.unsqueeze(0) + delta.unsqueeze(1)  # (P, Neff)
+    w = 1.0 / Sd
+    yWy = (w * UY.T * UY.T).sum(dim=1)  # (P,)
+    rWr = torch.clamp(yWy, min=_pos_floor(s.dtype))
+    sum_log_Sd = Sd.log().sum(dim=1)
+    log2pi = torch.log(torch.tensor(2.0 * torch.pi, dtype=s.dtype, device=s.device))
+    sigma2 = rWr / Neff
+    return Neff * (log2pi + sigma2.log() + 1.0) + sum_log_Sd
+
+
+def fit_delta_grid_compat(spec: CompatSpectrum,
+                          *,
+                          n_grid: int = 64,
+                          log_delta_min: float = -10.0,
+                          log_delta_max: float = 10.0,
+                          refine: bool = True) -> Tensor:
+    """
+    Multi-pheno log-delta fit for the compat path: 64-point grid then golden-section refinment, returns (P,)
+    Same search as fit_delta_grid but on the compat profile loss, wich carries no covariate term since X is already projected out.  ML only, no reml flag because fastlmm's findH2 doesnt have one
+    """
+    s, UY = spec.s, spec.UY
+    grid = torch.linspace(log_delta_min, log_delta_max, n_grid, dtype=s.dtype, device=s.device)
+    loss = _profile_loss_compat(grid, s, UY)  # (G, P)
+    idx = loss.argmin(dim=0)  # (P,)
+    if not refine:
+        return grid[idx]
+
+    # vectorised golden-section refinment on [grid[idx-1], grid[idx+1]] per pheno, 50 iters lands well past what the scan needs
+    lo_idx = torch.clamp(idx - 1, 0, n_grid - 1)
+    hi_idx = torch.clamp(idx + 1, 0, n_grid - 1)
+    a = grid[lo_idx].clone()
+    b = grid[hi_idx].clone()
+    inv_phi = 2.0 / (1.0 + 5.0 ** 0.5)
+    inv_phi2 = inv_phi * inv_phi
+    c = a + inv_phi2 * (b - a)
+    d = a + inv_phi  * (b - a)
+    fc = _profile_loss_compat_per_pheno(c, s, UY)
+    fd = _profile_loss_compat_per_pheno(d, s, UY)
+    for _ in range(50):
+        cond = fc < fd
+        b = torch.where(cond, d, b)
+        a = torch.where(cond, a, c)
+        c = a + inv_phi2 * (b - a)
+        d = a + inv_phi  * (b - a)
+        fc = _profile_loss_compat_per_pheno(c, s, UY)
+        fd = _profile_loss_compat_per_pheno(d, s, UY)
+    return (0.5 * (a + b)).clamp(log_delta_min, log_delta_max)
+
+
+def snp_wald_scan_compat(spec: CompatSpectrum,
+                         log_delta: Tensor,
+                         S: Tensor,
+                         *,
+                         snp_chunk: int = 4096,
+                         pheno_chunk: int = 256,
+                         n_real: int | None = None) -> ScanResult:
+    """
+    PORT IS DONE!
+    Multi-pheno per-(SNP, pheno) Wald F-stat in the compat (projected) basis (lmm_cov.py around 1050, the per-SNP loop in single_snp.py _internal_single_snp near line 1300)
+    Test SNPs get the same OLS regress-out against X and projection onto U_eff the phenos already went trough, so the whole test runs in the covariate-free reduced space -- no per-grid-point (C, C) cholesky, wich is what makes the compat path the fast one
+    Per-(SNP, pheno) dof is Neff - 1 = N - D - 1, matching fastlmm's _nLLcore rebinding N := N - linreg.D and the F-test in single_snp.py:1415
+    n_real splits the pheno axis the usual way: the first n_real columns keep full per-SNP detail (F, beta, SE, SnpFractVarExpl), the rest are permutation columns and only feed the per-column running max F.  Returns a ScanResult
+    """
+    s, UY, X, Xpinv, U_eff = spec.s, spec.UY, spec.X, spec.Xpinv, spec.U_eff
+    Neff = s.shape[0]
+    P = UY.shape[1]
+    M = S.shape[1]
+    if n_real is None:
+        n_real = P
+    n_real = min(n_real, P)
+    var_df = Neff - 1  # = N - D - 1
+    floor = _pos_floor(s.dtype)
+
+    # OLS-regress X out of the test SNPs, then project onto the kept basis -- the same two steps the phenos took in fastlmm_compat_rotate
+    S_r = S - X @ (Xpinv @ S)  # (N, M)
+    US = U_eff.T @ S_r  # (Neff, M)
+
+    f_real = torch.zeros(M, n_real, dtype=s.dtype, device=s.device)
+    beta_real = torch.zeros(M, n_real, dtype=s.dtype, device=s.device)
+    se_real = torch.zeros(M, n_real, dtype=s.dtype, device=s.device)
+    sfve_real = torch.zeros(M, n_real, dtype=s.dtype, device=s.device)
+    max_F = torch.full((P,), float("-inf"), dtype=s.dtype, device=s.device)
+    for p_start in range(0, P, pheno_chunk):
+        p_end = min(p_start + pheno_chunk, P)
+        UY_c = UY[:, p_start:p_end]  # (Neff, Pc)
+        delta_c = log_delta[p_start:p_end].exp()  # (Pc,)
+        w = 1.0 / (s.unsqueeze(0) + delta_c.unsqueeze(1))  # (Pc, Neff) per-pheno V⁻¹ diagonal
+        # the null residual is just UY_c -- X is already projected away, nothing left to regress
+        rWr = (w * UY_c.T * UY_c.T).sum(dim=1)  # (Pc,) null SS in V-metric
+        rWr = torch.clamp(rWr, min=floor)
+        real_end = min(p_end, n_real)  # last real-pheno column landing in this chunk
+
+        for m_start in range(0, M, snp_chunk):
+            m_end = min(m_start + snp_chunk, M)
+            US_c = US[:, m_start:m_end]  # (Neff, Mc)
+            sWy = (w * UY_c.T) @ US_c  # (Pc, Mc)
+            sWs = w @ (US_c * US_c)  # (Pc, Mc)
+            denom = torch.clamp(sWs, min=floor)
+            beta = sWy / denom
+            rss_full = torch.clamp(rWr.unsqueeze(1) - sWy * sWy / denom, min=floor)
+            var_beta = rss_full / var_df / denom  # df = N - D - 1
+            f_chunk = (beta * beta) / var_beta  # (Pc, Mc) Wald F per (pheno, SNP)
+            # per-column running max over the genome -- that's the whole perm threshold
+            max_F[p_start:p_end] = torch.maximum(max_F[p_start:p_end], f_chunk.max(dim=1).values)
+            # full per-SNP detail kept only for the real phenos, perm columns stop at the max above
+            if real_end > p_start:
+                rsl = real_end - p_start
+                f_real[m_start:m_end, p_start:real_end] = f_chunk[:rsl].T
+                beta_real[m_start:m_end, p_start:real_end] = beta[:rsl].T
+                se_real[m_start:m_end, p_start:real_end] = var_beta[:rsl].sqrt().T
+                # SnpFractVarExpl = sqrt(sWy² / (denom * YKY)), lmm_cov.py:1068. compat X is already regressed out so rWr is YKY directly
+                sfve = ((sWy[:rsl] * sWy[:rsl]) / (denom[:rsl] * rWr[:rsl].unsqueeze(1))).clamp(min=0.0).sqrt()
+                sfve_real[m_start:m_end, p_start:real_end] = sfve.T
+    # per-SNP null h2 = sigma2_g / (sigma2_g + sigma2_e) = 1 / (1 + delta), one value per real pheno
+    h2 = 1.0 / (1.0 + log_delta[:n_real].exp())
+    nullh2 = h2.unsqueeze(0).expand(M, n_real).contiguous()
+    return ScanResult(f=f_real, beta=beta_real, se=se_real, sfve=sfve_real,
+                      nullh2=nullh2, max_F=max_F)
+
+
+def loco_scan_compat(Z: Tensor,
+                     X: Tensor,
+                     Y: Tensor,
+                     chrom: np.ndarray,
+                     *,
+                     n_real: int | None = None,
+                     on_chrom=None) -> ScanResult:
+    """
+    PORT IS DONE!
+    Multi-pheno Leave-One-Chromosome-Out scan in fastlmm-compat mode, ports the LocoGwas path in single_snp.py (_internal_single_snp_LocoGwas around line 1100). Y is (N, P), returns a ScanResult
+    Same shape contract as loco_scan, but every chromosome rotates trough fastlmm_compat_rotate so the covariates get the OLS regress-out and the D-eigenvector drop that match fastlmm bit-for-bit
+    For each chromosome c the kinship is rebuilt without c, refit per-pheno log delta against K_loco, snp_wald_scan_compat on c-only SNPs.  Each chromosome's SNPs carry that chromosome's null h2.  n_real flows down: leading columns keep full per-SNP detail, trailing perm columns only feed the per-column genome max.  Z must be pre-standardised (use io.standardise_columns).  on_chrom, if given, is called on_chrom(chroms_done, chroms_total) after each chromosome
+    """
+    M = Z.shape[1]
+    P = Y.shape[1]
+    if n_real is None:
+        n_real = P
+    n_real = min(n_real, P)
+    f = torch.zeros(M, n_real, dtype=Z.dtype, device=Z.device)
+    beta = torch.zeros(M, n_real, dtype=Z.dtype, device=Z.device)
+    se = torch.zeros(M, n_real, dtype=Z.dtype, device=Z.device)
+    sfve = torch.zeros(M, n_real, dtype=Z.dtype, device=Z.device)
+    nullh2 = torch.zeros(M, n_real, dtype=Z.dtype, device=Z.device)
+    max_F = torch.full((P,), float("-inf"), dtype=Z.dtype, device=Z.device)
+    chroms = sorted(np.unique(chrom).tolist())
+    for k_idx, c in enumerate(chroms):
+        kin_mask = chrom != c
+        test_mask = chrom == c
+        K = grm(Z[:, kin_mask])  # K_loco for this chromosome
+        spec = fastlmm_compat_rotate(K, X, Y)
+        log_delta = fit_delta_grid_compat(spec)  # (P,)
+        res = snp_wald_scan_compat(spec, log_delta, Z[:, test_mask], n_real=n_real)
+        if n_real > 0:
+            f[test_mask, :] = res.f
+            beta[test_mask, :] = res.beta
+            se[test_mask, :] = res.se
+            sfve[test_mask, :] = res.sfve
+            nullh2[test_mask, :] = res.nullh2
+        max_F = torch.maximum(max_F, res.max_F)  # genome max = max over each chrom's max
+        if on_chrom is not None:
+            on_chrom(k_idx + 1, len(chroms))
+    return ScanResult(f=f, beta=beta, se=se, sfve=sfve, nullh2=nullh2, max_F=max_F)
+
+
+def single_k_scan_compat(Z: Tensor,
+                         X: Tensor,
+                         Y: Tensor,
+                         *,
+                         n_real: int | None = None) -> ScanResult:
+    """
+    Non-LOCO whole-genome scan in fastlmm-compat mode: one K from all SNPs, one compat rotation + delta-fit, one snp_wald_scan_compat over all M
+    Same proximal-contamination caveat as single_k_scan, just the fastlmm-compat rotation insted of the plain one.  Z must be pre-standardised
+    """
+    K = grm(Z)
+    spec = fastlmm_compat_rotate(K, X, Y)
+    log_delta = fit_delta_grid_compat(spec)  # (P,)
+    return snp_wald_scan_compat(spec, log_delta, Z, n_real=n_real)

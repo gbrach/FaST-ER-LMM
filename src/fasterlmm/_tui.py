@@ -12,7 +12,7 @@ PALETTE: dict[str, str] = {
     "primary":  "rgb(126,184,212)",  # pastel sky, the fasterlmm core colour
     "accent":   "rgb(240,168,120)",  # pastel peach
     "success":  "rgb(161,217,155)",  # pastel mint, done
-    "warn":     "rgb(255,217,128)",  # pastel yellow, in-flight
+    "warn":     "rgb(255,217,128)",  # pastel yellow, running
     "fail":     "rgb(224,140,140)",  # dusty rose, failed
     "lavender": "rgb(196,180,234)",  # extra shard colour
     "muted":    "rgb(170,170,170)",  # dim secondary text

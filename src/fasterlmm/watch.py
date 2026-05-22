@@ -1,6 +1,6 @@
 """
 Live TUI dashboard for a running fasterlmm gwas scan
-Point it at the outdir and it builds the multi-GPU view: one overall panel (aggregate progress, rate, ETA, Wald ops, RAM) plus one panel per shard (per-GPU progress bar, rate, GPU memory).  Point it at a single status.json and it shows the one-pane view
+Point it at the outdir and it builds the multi-GPU view: one overall panel (aggregate progress, rate, ETA, Wald ops, RAM) plus one panel per shard (per-GPU progress bar, rate, the live loco sweep, GPU memory).  Point it at a single status.json and it shows the one-pane view
 The watcher and the runner are decoupled, the runner drops json status snapshots and the watcher just polls them, so a shared filesystem is all it needs
 usage:
   fasterlmm watch <outdir>              dashboard, one panel per GPU shard
@@ -143,7 +143,8 @@ def _aggregate(states: list[dict[str, Any]]) -> dict[str, Any]:
         "elapsed_s": elapsed, "rate": rate, "eta_s": eta,
         "N": _first("N"), "M": _first("M"),
         "n_perm": _first("n_perm"), "loco": _first("loco"), "device": _first("device"),
-        "rss_mb": _sum("rss_mb"), "peak_rss_mb": _sum("peak_rss_mb")}
+        "rss_mb": _sum("rss_mb"), "peak_rss_mb": _sum("peak_rss_mb"),
+        "writes_pending": _sum("writes_pending")}
 
 
 # ---- panels ------------------------------------------------------------------
@@ -187,14 +188,20 @@ def _build_overall_panel(agg: dict[str, Any], n_shards: int,
         _kv("Wald ops", f"{_fmt_huge(wald_done)} / {_fmt_huge(wald_total)}")
     body.append("\n")
 
+    # RAM + writes lines stay unconditional so the panel keeps a fixed height -- a key the snapshot
+    # doesnt carry yet just renders a dash rather than dropping the whole line out
     rss, peak = agg.get("rss_mb"), agg.get("peak_rss_mb")
-    if rss is not None or peak is not None:
-        _kv("RAM", _fmt_mem(rss))
-        body.append("    ")
-        _kv("peak RAM", _fmt_mem(peak), PALETTE["warn"])
-        if n_shards > 1:
-            body.append(f"  (sum across {n_shards} shards)", style=PALETTE["muted"])
-        body.append("\n")
+    _kv("RAM", _fmt_mem(rss))
+    body.append("    ")
+    _kv("peak RAM", _fmt_mem(peak), PALETTE["warn"])
+    if n_shards > 1:
+        body.append(f"  (sum across {n_shards} shards)", style=PALETTE["muted"])
+    body.append("\n")
+
+    wp = agg.get("writes_pending")
+    _kv("writes", f"{int(wp):,} pending" if wp else "-",
+        PALETTE["warn"] if wp else PALETTE["muted"])
+    body.append("\n")
 
     cfg = []
     if n_perm is not None:
@@ -223,6 +230,7 @@ def _build_overall_panel(agg: dict[str, Any], n_shards: int,
 _STATE_GLYPH: dict[str, tuple[str, str]] = {
     "loading":  ("·", "muted"),
     "scanning": ("▶", "warn"),
+    "writing":  ("▸", "warn"),
     "dry-run":  ("·", "muted"),
     "done":     ("✓", "success"),
 }
@@ -252,6 +260,20 @@ def _build_shard_panel(idx: int, s: dict[str, Any], n_shards: int,
     body.append(f"/{total:,}", style=PALETTE["muted"])
     body.append("\n")
 
+    # loco dot strip -- one dot per chromosome, filled as each leave-one-out fold lands.  drawn for
+    # the whole of a loco run so the panel height stays fixed, it just reads full once the scan tips
+    # into the write drain
+    chroms_total = s.get("chroms_total")
+    if chroms_total:
+        chroms_total = int(chroms_total)
+        chroms_done = (min(int(s.get("chroms_done", 0)), chroms_total)
+                       if state == "scanning" else chroms_total)
+        body.append("LOCO    ", style=PALETTE["muted"])
+        body.append("●" * chroms_done, style=PALETTE["success"])
+        body.append("·" * (chroms_total - chroms_done), style=PALETTE["muted"])
+        body.append(f"  chr {chroms_done}/{chroms_total}", style=PALETTE["label"])
+        body.append("\n")
+
     body.append("rate    ", style=PALETTE["muted"])
     body.append(_fmt_rate(rate), style=PALETTE["success"])
     body.append("    eta ", style=PALETTE["muted"])
@@ -260,13 +282,38 @@ def _build_shard_panel(idx: int, s: dict[str, Any], n_shards: int,
     body.append("    upd ", style=PALETTE["muted"])
     body.append(_fmt_age(s.get("ts")), style=PALETTE["muted"])
 
+    # one fixed line for the writer side -- the drain readout while the bundle writes still land,
+    # the pending count while scanning, a dash otherwise.  always present so nothing below it
+    # jumps as the run crosses from scanning into the trailing write drain
+    body.append("\n")
+    cpu_frac = s.get("write_cpu_frac")
+    pending = s.get("writes_pending")
+    if cpu_frac is not None:
+        # drain readout: throughput + cpu-busy fraction.  cpu-time over wall-time below one full
+        # core, writes still pending, means the drain waits on the filesystem not on compute
+        body.append("drain   ", style=PALETTE["muted"])
+        mb_s = s.get("write_mb_s")
+        if mb_s is not None:
+            body.append(f"{mb_s:,.0f} MB/s", style=PALETTE["label"])
+            body.append("   ")
+        io_bound = cpu_frac < 1.0
+        body.append(f"cpu {cpu_frac * 100:.0f}%",
+                    style=PALETTE["warn"] if io_bound else PALETTE["success"])
+        body.append("  (i/o bound)" if io_bound else "  (cpu bound)", style=PALETTE["muted"])
+    elif pending:
+        body.append("writes  ", style=PALETTE["muted"])
+        body.append(f"{int(pending):,} pending", style=PALETTE["warn"])
+    else:
+        body.append("writes  ", style=PALETTE["muted"])
+        body.append("-", style=PALETTE["muted"])
+
     # GPU memory: alloc / total + peak, straight from torch in the worker
     g_alloc = s.get("gpu_alloc_mb")
     g_total = s.get("gpu_total_mb")
     g_peak = s.get("gpu_peak_alloc_mb")
     if g_alloc is not None or g_total is not None:
         body.append("\n")
-        body.append("gpu mem ", style=PALETTE["muted"])
+        body.append("GPU mem ", style=PALETTE["muted"])
         body.append(_fmt_mem(g_alloc), style=PALETTE["label"])
         body.append(" / ", style=PALETTE["muted"])
         body.append(_fmt_mem(g_total), style=PALETTE["muted"])
@@ -282,7 +329,7 @@ def _build_shard_panel(idx: int, s: dict[str, Any], n_shards: int,
     rss = s.get("rss_mb")
     if rss is not None:
         body.append("\n")
-        body.append("ram     ", style=PALETTE["muted"])
+        body.append("RAM     ", style=PALETTE["muted"])
         body.append(_fmt_mem(rss), style=PALETTE["label"])
         if s.get("peak_rss_mb") is not None:
             body.append("   peak ", style=PALETTE["muted"])
@@ -328,7 +375,6 @@ def main() -> None:
         prog="fasterlmm watch",
         description="live TUI dashboard for a running fasterlmm gwas job, single or multi-GPU")
     parser.add_argument("path", help="outdir (multi-GPU dashboard) or a status.json file (single pane)")
-    parser.add_argument("--poll-sec", type=float, default=0.5, help="seconds between polls")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -342,7 +388,7 @@ def main() -> None:
     run_name = outdir.name
 
     console = Console()
-    with Live(refresh_per_second=4, console=console, screen=False) as live:
+    with Live(refresh_per_second=2, console=console, screen=False) as live:
         while True:
             width = console.size.width
             if multi:
@@ -358,7 +404,7 @@ def main() -> None:
                 if payload and payload.get("state") == "done":
                     time.sleep(0.6)
                     break
-            time.sleep(args.poll_sec)
+            time.sleep(1.0)  # poll the status files once a second
 
 
 if __name__ == "__main__":

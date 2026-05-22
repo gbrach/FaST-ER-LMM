@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from fasterlmm.core import ScanResult, loco_scan, single_k_scan
+from fasterlmm.core import ScanResult, loco_scan_compat, single_k_scan_compat
 from fasterlmm.io import AlignedDataset, standardise_columns
 
 
@@ -24,7 +24,7 @@ def perm_threshold(data: AlignedDataset,
                    on_chrom=None) -> tuple[ScanResult, Tensor]:
     """
     Min-F permutation null distribution for a whole batch of phenos in one scan
-    Pack the B real phenos and their B * n_perm permutation columns into one (N, B + B*n_perm) matrix, run loco_scan once, slice the per-pheno results back out.
+    Pack the B real phenos and their B * n_perm permutation columns into one (N, B + B*n_perm) matrix, run loco_scan_compat once, slice the per-pheno results back out.
     The eigendecomposition is genotype-only so it costs the same for one column or fifteen thousand -- batching is what amortizes it across phenos, not just across perms.
     Each pheno gets its own n_perm independent row-shuffles, the way fastlmm does it -- the rng is seeded per (seed, pheno index) so a pheno sees the same perms no matter which batch it lands in or how phenos-per-job is set.
     Returns (ScanResult for the B real phenos, perm_max_F (B, n_perm)).  perm_max_F is the per-perm genome max F, monotone-inverse to the per-perm min p.
@@ -50,9 +50,9 @@ def perm_threshold(data: AlignedDataset,
     Y_all = torch.cat([y_real, y_perms], dim=1)  # (N, B + B*n_perm)
 
     if loco:
-        res = loco_scan(Z_std, X, Y_all, chrom, n_real=B, on_chrom=on_chrom)
+        res = loco_scan_compat(Z_std, X, Y_all, chrom, n_real=B, on_chrom=on_chrom)
     else:
-        res = single_k_scan(Z_std, X, Y_all, n_real=B)  # one K over all SNPs
+        res = single_k_scan_compat(Z_std, X, Y_all, n_real=B)  # one K over all SNPs
 
     perm_max_F = res.max_F[B:].reshape(B, n_perm)  # row b holds pheno b's per-perm genome max F
     return res, perm_max_F
