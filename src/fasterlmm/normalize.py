@@ -28,6 +28,10 @@ def rint_columns(Y: np.ndarray, *,
 
 
 def _rint_1d(y: np.ndarray, c: float, ties: str) -> np.ndarray:
+    """
+    Blom RINT of one column, NaNs left untouched
+    Ranks only the finite entries, maps them trough the normal quantile, scatters them back into a nan-filled output so the missing cells round-trip
+    """
     out = np.full_like(y, np.nan, dtype=np.float64)
     mask = ~np.isnan(y)
     n = int(mask.sum())
@@ -38,6 +42,9 @@ def _rint_1d(y: np.ndarray, c: float, ties: str) -> np.ndarray:
     return out
 
 
-# keeping the old name as a thin alias so anything that imported `rint` from the previous (unused) version still works -- can drop later if it stays orphaned
 def rint(y: np.ndarray, *, ties_method: str = "average") -> np.ndarray:
+    """
+    Thin alias for rint_columns under the old name
+    Kept so anything that imported rint from the previous (unused) version still resolves, can drop it once nothing points here
+    """
     return rint_columns(y, ties=ties_method)

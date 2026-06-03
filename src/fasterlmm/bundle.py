@@ -53,6 +53,10 @@ class BundleWriter:
     """
 
     def __init__(self, path: Path | str) -> None:
+        """
+        Open the staging dir for a fresh bundle, clearing any stale .tmp left by an interrupted run
+        Parts stream into a .tmp sibling and only get renamed into place on close, so a crash never leaves a half-built bundle behind
+        """
         self._dir = Path(path)
         self._tmp = self._dir.with_name(self._dir.name + ".tmp")
         # a stale .tmp -- a staging dir from an interrupted run or an orphaned single-file .tmp from

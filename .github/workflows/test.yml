@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # cpu-only torch from the pytorch index so the job doesnt pull the multi-GB cuda wheel.
+      # installing it first means the editable install below sees torch already satisfied
+      - name: install cpu torch
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      # the test extra is pytest + pytest-cov only -- no fastlmm, no gpu.  the parity / fastlmm-external
+      # / multi-gpu tests skip-gate cleanly (no golden fixture on a clean checkout, no cuda on the runner)
+      - name: install package + test extra
+        run: pip install -e ".[test]"
+
+      - name: run the portable suite
+        run: pytest -q -p no:cacheprovider

@@ -18,6 +18,7 @@ fasterlmm {__version__}  torch port of fastlmm
 
 subcommands:
   gwas -> single-trait LOCO GWAS with permutation threshold
+  extreme -> big-N LOCO GWAS, streamed genotype + capped low-rank kinship (scales past gwas)
   watch -> live TUI for a running gwas job
   concat -> gather a slurm-array run's bundle shards into the gwas_bundle.parquet dataset
 
@@ -62,6 +63,9 @@ def main() -> None:
     if sub == "gwas":
         from fasterlmm.cli import main as gwas_main
         gwas_main()
+    elif sub == "extreme":
+        from fasterlmm.cli_extreme import main as extreme_main
+        extreme_main()
     elif sub == "watch":
         from fasterlmm.watch import main as watch_main
         watch_main()

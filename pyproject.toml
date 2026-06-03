@@ -4,9 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fasterlmm"
-version = "1.2.0"
+dynamic = ["version"]
 description = "torch port of FaST-LMM (Lippert et al. 2011, Nat. Methods)"
+readme = "README.md"
 requires-python = ">=3.10"
+authors = [{ name = "gbrach", email = "gbrach@users.noreply.github.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: POSIX :: Linux",
+]
 dependencies = [
     "numpy",
     "scipy",
@@ -18,8 +28,38 @@ dependencies = [
     "pyarrow",
 ]
 
+[project.optional-dependencies]
+# portable suite: pytest only, runs cpu-only on a fresh clone with no fastlmm / no gpu
+test = ["pytest>=7", "pytest-cov"]
+# fastlmm is only needed to rebuild the parity golden + run the fastlmm-external low-rank check
+parity = ["fastlmm"]
+# matplotlib backs generate_figures.py, not a runtime dep of the package
+figures = ["matplotlib"]
+
 [project.scripts]
 fasterlmm = "fasterlmm.cli_main:main"
 
+[project.urls]
+Repository = "https://github.com/gbrach/FaST-ER-LMM"
+Issues = "https://github.com/gbrach/FaST-ER-LMM/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "fasterlmm.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["fasterlmm"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
