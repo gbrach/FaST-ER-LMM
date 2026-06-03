@@ -7,3 +7,14 @@ dist/
 .ipynb_checkpoints/
 .DS_Store
 runs/
+
+# tests: ship the suite + fixture builders, keep the built data + scratch + local bench infra out
+tests/_data/
+tests/_runs/
+tests/bench_extreme_scaling.py
+tests/fastlmm_probe.py
+tests/fastlmm_perm_probe.py
+tests/fastlmm_diag_probe.py
+tests/profile_warm_batch.py
+tests/synth_big.py
+tests/*.sh

@@ -144,7 +144,10 @@ def _aggregate(states: list[dict[str, Any]]) -> dict[str, Any]:
         "N": _first("N"), "M": _first("M"),
         "n_perm": _first("n_perm"), "loco": _first("loco"), "device": _first("device"),
         "rss_mb": _sum("rss_mb"), "peak_rss_mb": _sum("peak_rss_mb"),
-        "writes_pending": _sum("writes_pending")}
+        "writes_pending": _sum("writes_pending"),
+        "mode": _first("mode"),  # gwas leaves this unset, the title defaults it back to gwas
+        "state": ("done" if states and all(s.get("state") == "done" for s in states)
+                  else _first("state"))}
 
 
 # ---- panels ------------------------------------------------------------------
@@ -219,10 +222,10 @@ def _build_overall_panel(agg: dict[str, Any], n_shards: int,
         _kv("config", "  ·  ".join(cfg))
 
     title = Text("FaST-ER-LMM ", style=f"bold {PALETTE['primary']}")
-    title.append("gwas", style=f"bold {PALETTE['accent']}")
+    title.append(agg.get("mode") or "gwas", style=f"bold {PALETTE['accent']}")  # gwas (default) or extreme
     if run_name:
         title.append(f"  ·  {run_name}", style=PALETTE["label"])
-    title.append("  ·  live", style=PALETTE["muted"])
+    title.append("  ·  done" if agg.get("state") == "done" else "  ·  live", style=PALETTE["muted"])
     return Panel(body, title=title, border_style=PALETTE["primary"],
                  padding=(1, 2), title_align="left")
 
@@ -371,6 +374,10 @@ def _render(parent: dict | None, shards: dict[int, dict],
 
 
 def main() -> None:
+    """
+    Poll the status files under the given path and redraw the live frame til the run reports done
+    A directory (or a not-yet-existing path whose parent already holds shard files) is the multi-GPU dashboard, a plain status.json is the single pane
+    """
     parser = argparse.ArgumentParser(
         prog="fasterlmm watch",
         description="live TUI dashboard for a running fasterlmm gwas job, single or multi-GPU")

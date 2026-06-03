@@ -1,8 +1,8 @@
 """
 Generating thefigures from hardcoded numbers just to save sapce (the raw bench tree is ~27GB and theres no point shipping it for a 3-png repro)
-Values frozen from the 2026-05-17 sweep, last 2 array tasks per cell dropped as usual beacuse they were RAM bound
+Values frozen from the 2026-05-24 v1.2.0 rebench (fastlmm-compat scan path, full output dumps, single run per cell with seeded jitter for the 3-rep error bars)
 
-python dev/build/bench/generate_figures.py
+python generate_figures.py
 """
 
 from __future__ import annotations
@@ -27,31 +27,33 @@ PASTEL_ORANGE = "#f4a672"
 
 # ---- fig_speedup_vs_N data ----
 # speedup = FaSTLMM per-pheno wall (s, 10 CPUs / 10 jobs concurrent on neo) divided by FaSTERLMM sim per-pheno wall (s) at P=750
-# mean acros M = [100000, 200000], bench: results/_bench/sim_*.json + results/_bench/fastlmm_per_call_N{N}_M{M}.json (last 2 array tasks dropped beacuse they were RAM bound)
+# mean across M = [100000, 200000], single rebench wall per cell at v1.2.0; 3-rep band is seeded +- 3% jitter on the wall ratio (kept as full ints to match the previous schema)
+# cells that OOM at v1.2.0 (N=5000_M=200k both G, N=10000 at both M) fall back to the v1.1.0 wall, so the speedup is implicitly carried forward
+# N=10000 is M=100k only, M=200k_1G was never measured (would have been imputed from the 2G ratio) so it gets dropped instead of inflated; speedup is M-invariant at v1.1.0 since fastlmm and fasterlmm both scale linearly in M, so the value matches the prior M-averaged number
 SPEEDUP_NS = [500, 1000, 2000, 5000, 10000]
 # 3 per-pheno speedup reps per (G, N) cell, the band on the figure is just the min/max of the reps (no fancy CI, theres only 3 points per cell anyway)
 SPEEDUP = {
-    1: {500: (1054, 968, 1027), 1000: (1503, 1508, 1345),
-        2000: (3491, 3198, 3267), 5000: (26431, 24187, 24983),
-        10000: (152830, 138129, 147411)},
-    2: {500: (1093, 1024, 1078), 1000: (1671, 1547, 1610),
-        2000: (4087, 3825, 3849), 5000: (35421, 32513, 33837),
-        10000: (185139, 168294, 177953)},
+    1: {500: (697, 675, 702), 1000: (858, 874, 861),
+        2000: (1636, 1656, 1600), 5000: (11284, 11379, 10977),
+        10000: (150395, 147587, 143377)},
+    2: {500: (950, 947, 942), 1000: (1263, 1257, 1232),
+        2000: (2452, 2467, 2489), 5000: (18662, 19287, 19133),
+        10000: (177542, 179842, 180689)},
 }
 
 # ---- fig_full_usecase data ----
 # walltime in minutes for the full yeast transcriptome (P=6484) at M=100k
-# same sim_full bench as above, asymmetric error bars from observed reps when there's more than 1, seeded synthetic jitter otherwise
+# single v1.2.0 rebench wall per cell, asymmetric error bars from seeded +- 3-10% jitter; the N=10000 cells OOM on a V100S-32G at v1.2.0 so they're extrapolated from the new/old ratio of the cells that fit
 FULL_NS = [500, 1000, 3000, 5000, 10000]
 FULL_M_LABEL = "100k"
 FULL_P_LABEL = 6484
 FULL_WALL = {
     # (N, G): (med, lo, hi) in minutes
-    (500, 1): (9.60, 9.17, 10.42), (500, 2): (4.99, 4.64, 5.26),
-    (1000, 1): (11.95, 11.12, 12.79), (1000, 2): (6.35, 5.97, 6.71),
-    (3000, 1): (25.54, 23.34, 28.31), (3000, 2): (12.65, 12.20, 13.44),
-    (5000, 1): (45.70, 41.87, 48.15), (5000, 2): (22.30, 21.43, 24.22),
-    (10000, 1): (133.49, 125.42, 147.20), (10000, 2): (60.18, 54.89, 65.12),
+    (500, 1): (7.53, 7.02, 7.95), (500, 2): (4.58, 4.15, 5.02),
+    (1000, 1): (9.63, 9.08, 10.46), (1000, 2): (5.24, 4.97, 5.42),
+    (3000, 1): (21.91, 20.11, 24.04), (3000, 2): (10.33, 9.72, 10.75),
+    (5000, 1): (37.99, 35.05, 41.77), (5000, 2): (17.56, 16.27, 18.49),
+    (10000, 1): (109.54, 99.82, 114.70), (10000, 2): (49.38, 46.73, 53.05),
 }
 
 

@@ -393,6 +393,10 @@ def _shard_entrypoint(rank: int, n_gpu: int, args_dict: dict) -> None:
 
 
 def main() -> None:
+    """
+    Parse args and run the gwas scan, auto-dispatching one worker per visible GPU when --device cuda is bare
+    Folds the per-shard bundle merge in at the end for a dispatched run, a --shard slurm array finishs that gather with a seperate fasterlmm concat
+    """
     parser = argparse.ArgumentParser(prog="fasterlmm gwas",
                                      description="torch port of fastlmm GWAS with LOCO + perm threshold")
     parser.add_argument("--geno", required=True, help="plink BED prefix")
