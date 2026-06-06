@@ -19,18 +19,7 @@ from fasterlmm.cli_extreme import (
     _meminfo_available_bytes, _pack_perms, _ram_headroom_bytes, _want_resident,
 )
 
-
-# the 14-column fastlmm schema the per-pheno gwas.tsv carries, exact order
-GWAS_TSV_COLS = ["sid_index", "SNP", "Chr", "GenDist", "ChrPos", "PValue",
-                 "SnpWeight", "SnpWeightSE", "EffectSize", "SnpFractVarExpl",
-                 "Mixing", "Nullh2", "Pheno", "PhenoCount"]
-
-# the 20 pheno columns in data/example/example_pheno.tsv, in their tsv order
-PHENO_NAMES = ["YAL001C", "YAL002W", "YAL003W", "YAL005C",
-               "YBR001C", "YBR002C", "YBR003W", "YBR004C",
-               "YGR001C", "YGR002C", "YGR003W", "YGR004W",
-               "YLR001C", "YLR002C", "YLR003C", "YLR004C",
-               "YPR001W", "YPR002W", "YPR003C", "YPR004C"]
+from tests.conftest import GWAS_SCHEMA_COLS as GWAS_TSV_COLS, PHENO_NAMES
 
 
 def _run_extreme(geno: Path, pheno: Path, outdir: Path, *extra: str) -> subprocess.CompletedProcess:

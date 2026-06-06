@@ -17,7 +17,7 @@ from fasterlmm.io_stream import (
 )
 from fasterlmm.lowrank import (
     lowrank_basis, rotate_phenos, LowRankSpectrum,
-    fit_delta_grid_lowrank, snp_wald_scan_lowrank,
+    fit_delta_grid_lowrank, snp_wald_scan_lowrank, _auto_tile_lowrank,
 )
 
 
@@ -30,6 +30,7 @@ def _loco_scan_core(chroms: list,
                     Y: Tensor,
                     *,
                     n_real: int | None,
+                    block_size: int,
                     dtype: torch.dtype,
                     on_chrom) -> ScanResult:
     """
@@ -57,8 +58,12 @@ def _loco_scan_core(chroms: list,
         spec = LowRankSpectrum(s=basis.s, U_eff=basis.U_eff, X=basis.X,
                                Xpinv=basis.Xpinv, Neff=basis.Neff, UY=UY, UUY=UUY)
         log_delta = fit_delta_grid_lowrank(spec)  # (P,)
+        # size the gpu tiles once for this chromosone, N k P and block_size dont move across the blocks so the per-block call would otherwise re-probe mem_get_info on evey block for nothing
+        pc, mc = _auto_tile_lowrank(spec.U_eff.shape[0], spec.U_eff.shape[1],
+                                    P, block_size, spec.s.device, spec.s.element_size())
         for S_b, cidx in block_source(c):
-            res = snp_wald_scan_lowrank(spec, log_delta, S_b.to(G.device), n_real=n_real)
+            res = snp_wald_scan_lowrank(spec, log_delta, S_b.to(G.device),
+                                        snp_chunk=mc, pheno_chunk=pc, n_real=n_real)
             ridx = torch.from_numpy(cidx).to(G.device)
             if n_real > 0:
                 f[ridx] = res.f
@@ -94,7 +99,7 @@ def loco_scan_streamed(handle: BedHandle,
         return chrom_test_blocks(handle, c, block_size=block_size, dtype=dtype)
 
     return _loco_scan_core(chroms, block_source, M, G, g_chrom, X, Y,
-                           n_real=n_real, dtype=dtype, on_chrom=on_chrom)
+                           n_real=n_real, block_size=block_size, dtype=dtype, on_chrom=on_chrom)
 
 
 def loco_scan_resident(Z: Tensor,
@@ -119,4 +124,4 @@ def loco_scan_resident(Z: Tensor,
         return resident_chrom_blocks(Z, z_chrom, c, block_size=block_size)
 
     return _loco_scan_core(chroms, block_source, M, G, g_chrom, X, Y,
-                           n_real=n_real, dtype=dtype, on_chrom=on_chrom)
+                           n_real=n_real, block_size=block_size, dtype=dtype, on_chrom=on_chrom)

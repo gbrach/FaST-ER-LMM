@@ -15,6 +15,18 @@ EXAMPLE = REPO / "data" / "example"
 RUNS_ROOT = REPO / "tests" / "_runs"
 PARITY_DATA = REPO / "tests" / "_data" / "parity"
 
+# the 14-column fastlmm single_snp schema the per-pheno gwas.tsv carries, in the exact order cli._write_pheno lays it down
+GWAS_SCHEMA_COLS = ["sid_index", "SNP", "Chr", "GenDist", "ChrPos", "PValue",
+                    "SnpWeight", "SnpWeightSE", "EffectSize", "SnpFractVarExpl",
+                    "Mixing", "Nullh2", "Pheno", "PhenoCount"]
+
+# the 20 pheno columns in data/example/example_pheno.tsv, in their tsv order
+PHENO_NAMES = ["YAL001C", "YAL002W", "YAL003W", "YAL005C",
+               "YBR001C", "YBR002C", "YBR003W", "YBR004C",
+               "YGR001C", "YGR002C", "YGR003W", "YGR004W",
+               "YLR001C", "YLR002C", "YLR003C", "YLR004C",
+               "YPR001W", "YPR002W", "YPR003C", "YPR004C"]
+
 
 @pytest.fixture(scope="session")
 def repo_root() -> Path:

@@ -69,7 +69,7 @@ Each task gets one GPU and one round-robin pheno slice via `--shard X/N`. Saved 
 ```bash
 #!/bin/bash
 #SBATCH --array=0-7
-#SBATCH --partition=gpu --gres=gpu:2
+#SBATCH --partition=gpu --gres=gpu:1
 #SBATCH -c 8 --mem=32G -t 4:00:00
 #SBATCH --output=logs/scan_%A_%a.out
 mamba activate fasterlmm
@@ -99,7 +99,7 @@ fasterlmm extreme \
   --device cuda --bundle --n-perm 100 --rint
 ```
 
-Every `gwas` flag works here too, plus the kinship-pruning and streaming ones (`--grm-k`, `--grm`, `--block-size`, `--resident`). At 100k strains × 100k variants a single pheno with its 100 perms lands in about 2.9 seconds, and a full transcriptome (~6500 phenos) in about 5.4 hours on one V100S, where the dense path would want a 40 GB genotype slab in ram before a single scan tensor even exists (see the comparison below).
+Most `gwas` flags carry over (`extreme` runs LOCO-only, so there's no `--no-loco`, and no `--dry-run`), plus the kinship-pruning and streaming ones (`--grm-k`, `--grm`, `--block-size`, `--resident`, `--float64`). At 100k strains × 100k variants a single pheno with its 100 perms lands in about 2.9 seconds, and a full transcriptome (~6500 phenos) in about 5.4 hours on one V100S, where the dense path would want a 40 GB genotype slab in ram before a single scan tensor even exists (see the comparison below).
 
 ### Apple Silicon (M-series GPU)
 
@@ -209,7 +209,7 @@ misc:
 
 `fasterlmm concat <OUTDIR>`: gather the per-shard bundle parts into the `gwas_bundle.parquet` dataset. A single-job multi-GPU run already does this itself, so concat is only needed after a `--shard` array.
 
-`fasterlmm extreme <same flags as gwas>`: the big-N variant. Same outputs and same association math as `gwas`, but it streams the genotypes off the BED and builds the kinship from a pruned marker set insted of the dense N×N one, so it keeps going well past where `gwas` runs out of memory. On top of everything `gwas` takes, it adds:
+`fasterlmm extreme <same flags as gwas>`: the big-N variant. Same outputs and same association math as `gwas`, but it streams the genotypes off the BED and builds the kinship from a pruned marker set insted of the dense N×N one, so it keeps going well past where `gwas` runs out of memory. On top of the `gwas` flags it shares (`extreme` runs LOCO-only, so no `--no-loco` and no `--dry-run`), it adds:
 
 - `--grm-k 5000` target kinship marker count for the auto-stride when no `--grm` is given (lower it and the rank of K drops with it)
 - `--grm PREFIX` a pre-pruned kinship BED to use insted of the auto-stride

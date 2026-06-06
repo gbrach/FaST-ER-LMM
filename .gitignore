@@ -8,6 +8,9 @@ dist/
 .DS_Store
 runs/
 
+# dev sandbox: probes, benches, scratch utilities, never part of the public repo (figure-regen lives at top-level generate_figures.py)
+dev/
+
 # tests: ship the suite + fixture builders, keep the built data + scratch + local bench infra out
 tests/_data/
 tests/_runs/

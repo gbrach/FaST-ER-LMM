@@ -1,7 +1,8 @@
 """
-Entry: dispatchs to the gwas, watch and concat subcommands
+Entry: dispatchs to the gwas, extreme, watch and concat subcommands
 Usage:
   fasterlmm gwas --geno ... --pheno ... --outdir ...
+  fasterlmm extreme --geno ... --pheno ... --outdir ...
   fasterlmm watch <status.json>
   fasterlmm concat <outdir>
 Buidling this as the new single entry so the dashed forms (fasterlmm-gwas, fasterlmm-watch) can go away

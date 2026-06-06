@@ -23,12 +23,7 @@ from fasterlmm.bundle import (
     merge_bundle_parts,
 )
 
-# the 14 fastlmm single_snp columns in the exact order cli._write_pheno lays them down
-GWAS_COLUMNS = [
-    "sid_index", "SNP", "Chr", "GenDist", "ChrPos", "PValue", "SnpWeight",
-    "SnpWeightSE", "EffectSize", "SnpFractVarExpl", "Mixing", "Nullh2",
-    "Pheno", "PhenoCount",
-]
+from tests.conftest import GWAS_SCHEMA_COLS as GWAS_COLUMNS
 
 
 def _make_table(pheno_name, n_rows=5, *, dict_pheno=False):
