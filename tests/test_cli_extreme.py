@@ -15,31 +15,23 @@ import pandas as pd
 import pytest
 import torch
 
-from fasterlmm.cli_extreme import (
-    _meminfo_available_bytes, _pack_perms, _ram_headroom_bytes, _want_resident,
-)
+from fasterlmm.cli_extreme import (_meminfo_available_bytes, _pack_perms, _ram_headroom_bytes, _want_resident)
 
 from tests.conftest import GWAS_SCHEMA_COLS as GWAS_TSV_COLS, PHENO_NAMES
 
 
 def _run_extreme(geno: Path, pheno: Path, outdir: Path, *extra: str) -> subprocess.CompletedProcess:
     """drive the extreme subcommand by subprocess, cpu-only, surface stderr on a bad exit"""
-    argv = [sys.executable, "-m", "fasterlmm", "extreme",
-            "--geno", str(geno),
-            "--pheno", str(pheno),
-            "--outdir", str(outdir),
-            "--device", "cpu",
-            "--no-multi-gpu",
-            "--n-perm", "5",
-            *extra]
-    r = subprocess.run(argv, capture_output=True, text=True, check=False)
+    argv = [sys.executable, "-m", "fasterlmm", "extreme", "--geno", str(geno), "--pheno", str(pheno),
+            "--outdir", str(outdir), "--device", "cpu", "--no-multi-gpu", "--n-perm", "5", *extra]
+    r = subprocess.run(argv, capture_output = True, text = True, check = False)
     assert r.returncode == 0, (
         f"extreme {' '.join(extra)} exited {r.returncode}\n"
         f"--- stderr ---\n{r.stderr}\n--- stdout ---\n{r.stdout}")
     return r
 
 
-# ----- _pack_perms ---------------------------------------------------------
+# _PACK_PERMS  -------
 
 def test_pack_perms_shape_and_real_block() -> None:
     """packed matrix is (N, B + B*n_perm) and its first B columns are the real phenos untouched"""
@@ -47,7 +39,7 @@ def test_pack_perms_shape_and_real_block() -> None:
     N, B, n_perm = 30, 3, 4
     Y_real = torch.from_numpy(rng.standard_normal((N, B)))
     pheno_idx = [2, 7, 11]
-    packed = _pack_perms(Y_real, pheno_idx, n_perm, seed=19930909)
+    packed = _pack_perms(Y_real, pheno_idx, n_perm, seed = 19930909)
     assert packed.shape == (N, B + B * n_perm)
     # the leading B columns must be the real phenos copied through bit for bit
     assert torch.equal(packed[:, :B], Y_real)
@@ -61,13 +53,13 @@ def test_pack_perms_matches_independent_gather() -> None:
     B = len(pheno_idx)
     Y_real = torch.from_numpy(rng.standard_normal((N, B)))
     seed = 19930909
-    packed = _pack_perms(Y_real, pheno_idx, n_perm, seed=seed)
+    packed = _pack_perms(Y_real, pheno_idx, n_perm, seed = seed)
 
     # rebuild the expected perm columns the same way perms.perm_threshold does it: pheno b_pos seeded
     # on its own original column index p, n_perm row-shuffles via argsort, gathered along the rows
     for b_pos, p in enumerate(pheno_idx):
         prng = np.random.default_rng([seed, int(p)])
-        orders = prng.random((n_perm, N)).argsort(axis=1).T  # (N, n_perm)
+        orders = prng.random((n_perm, N)).argsort(axis = 1).T  # (N, n_perm)
         block = packed[:, B + b_pos * n_perm:B + (b_pos + 1) * n_perm]
         for j in range(n_perm):
             expected = Y_real[torch.from_numpy(orders[:, j]), b_pos]
@@ -80,8 +72,8 @@ def test_pack_perms_deterministic_across_calls() -> None:
     N, n_perm = 20, 3
     pheno_idx = [1, 5]
     Y_real = torch.from_numpy(rng.standard_normal((N, len(pheno_idx))))
-    a = _pack_perms(Y_real, pheno_idx, n_perm, seed=19930909)
-    b = _pack_perms(Y_real, pheno_idx, n_perm, seed=19930909)
+    a = _pack_perms(Y_real, pheno_idx, n_perm, seed = 19930909)
+    b = _pack_perms(Y_real, pheno_idx, n_perm, seed = 19930909)
     assert torch.equal(a, b)
 
 
@@ -92,10 +84,10 @@ def test_pack_perms_seed_independent_of_batching() -> None:
     # the full two-pheno batch, then pheno index 5 scanned on its own
     cols = rng.standard_normal((N, 2))
     Y_both = torch.from_numpy(cols)
-    packed_both = _pack_perms(Y_both, [3, 5], n_perm, seed=19930909)
+    packed_both = _pack_perms(Y_both, [3, 5], n_perm, seed = 19930909)
 
     Y_solo = torch.from_numpy(cols[:, 1:2])  # just the second pheno, original index 5
-    packed_solo = _pack_perms(Y_solo, [5], n_perm, seed=19930909)
+    packed_solo = _pack_perms(Y_solo, [5], n_perm, seed = 19930909)
 
     # in the batch pheno 5 is b_pos 1, its perm block sits after the 2 real cols + pheno 3's n_perm block
     block_in_batch = packed_both[:, 2 + 1 * n_perm:2 + 2 * n_perm]
@@ -103,7 +95,7 @@ def test_pack_perms_seed_independent_of_batching() -> None:
     assert torch.equal(block_in_batch, block_solo)
 
 
-# ----- _want_resident + ram probes -----------------------------------------
+# _WANT_RESIDENT + RAM PROBES  -------
 
 def test_want_resident_off_always_false() -> None:
     """mode off never goes resident no matter how small the slab"""
@@ -144,7 +136,7 @@ def test_ram_headroom_returns_int_or_none() -> None:
             assert v >= 0
 
 
-# ----- subprocess: the extreme cli on data/example -------------------------
+# SUBPROCESS: THE EXTREME CLI ON DATA/EXAMPLE  -------
 
 def test_extreme_pheno_idx_single_dir(example_geno, example_pheno, outdir) -> None:
     """--pheno-idx writes exactly that one pheno dir with a 14-col gwas.tsv, p-values in [0, 1]"""
@@ -154,7 +146,7 @@ def test_extreme_pheno_idx_single_dir(example_geno, example_pheno, outdir) -> No
     assert pheno_dirs == [target], f"expected just {target}, got {pheno_dirs}"
     tsv = outdir / target / "gwas.tsv"
     assert tsv.exists()
-    df = pd.read_csv(tsv, sep="\t")
+    df = pd.read_csv(tsv, sep = "\t")
     assert list(df.columns) == GWAS_TSV_COLS
     assert len(df) == 1500
     assert df.PValue.between(0.0, 1.0).all()
@@ -180,11 +172,11 @@ def test_extreme_resident_on_off_same_numbers(example_geno, example_pheno, outdi
     _run_extreme(example_geno, example_pheno, on_dir, "--pheno-idx", "1", "--resident", "on")
     _run_extreme(example_geno, example_pheno, outdir, "--pheno-idx", "1", "--resident", "off")
     target = PHENO_NAMES[1]
-    df_on = pd.read_csv(on_dir / target / "gwas.tsv", sep="\t")
-    df_off = pd.read_csv(outdir / target / "gwas.tsv", sep="\t")
+    df_on = pd.read_csv(on_dir / target / "gwas.tsv", sep = "\t")
+    df_off = pd.read_csv(outdir / target / "gwas.tsv", sep = "\t")
     # the streamed and resident paths share the exact low-rank scan, only the genotype delivery differs
     assert list(df_on.columns) == list(df_off.columns)
     assert df_on["SNP"].tolist() == df_off["SNP"].tolist()
     for col in ("PValue", "SnpWeight", "SnpWeightSE", "EffectSize", "SnpFractVarExpl", "Nullh2"):
         np.testing.assert_array_equal(df_on[col].to_numpy(), df_off[col].to_numpy(),
-                                      err_msg=f"resident vs stream diverged on {col}")
+                                      err_msg = f"resident vs stream diverged on {col}")

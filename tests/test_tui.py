@@ -10,33 +10,17 @@ import re
 
 from rich.text import Text
 
-from fasterlmm._tui import (
-    PALETTE,
-    SHARD_PALETTE_KEYS,
-    progress_bar,
-    shard_color,
-)
+from fasterlmm._tui import (PALETTE, SHARD_PALETTE_KEYS, progress_bar, shard_color)
 
 
 # the documented palette keys, every one must be present
-_EXPECTED_KEYS = {
-    "primary",
-    "accent",
-    "success",
-    "warn",
-    "fail",
-    "muted",
-    "label",
-    "lavender",
-}
+_EXPECTED_KEYS = {"primary", "accent", "success", "warn", "fail", "muted", "label", "lavender"}
 
 # rich rgb string like rgb(126,184,212)
 _RGB_RE = re.compile(r"^rgb\(\d{1,3},\d{1,3},\d{1,3}\)$")
 
 
-# ---------------------------------------------------------------------------
-# PALETTE
-# ---------------------------------------------------------------------------
+# PALETTE  -------
 
 
 def test_palette_has_documented_keys():
@@ -54,9 +38,7 @@ def test_palette_values_are_rgb_strings():
         assert all(0 <= c <= 255 for c in channels)
 
 
-# ---------------------------------------------------------------------------
-# SHARD_PALETTE_KEYS + shard_color
-# ---------------------------------------------------------------------------
+# SHARD_PALETTE_KEYS + SHARD_COLOR  -------
 
 
 def test_shard_palette_keys_length_five():
@@ -89,9 +71,7 @@ def test_shard_color_distinct_within_one_cycle():
     assert len(set(cycle)) == 5
 
 
-# ---------------------------------------------------------------------------
-# progress_bar
-# ---------------------------------------------------------------------------
+# PROGRESS_BAR  -------
 
 
 def test_progress_bar_returns_text():
@@ -103,14 +83,14 @@ def test_progress_bar_returns_text():
 def test_progress_bar_plain_length_matches_width():
     """for a positive total the plain string is exactly width chars long"""
     for width in (10, 40, 73):
-        bar = progress_bar(3, 10, width=width)
+        bar = progress_bar(3, 10, width = width)
         assert len(bar.plain) == width
 
 
 def test_progress_bar_zero_total_is_all_muted():
     """total <= 0 renders width muted blocks, no filled glyphs"""
     width = 40
-    bar = progress_bar(0, 0, width=width)
+    bar = progress_bar(0, 0, width = width)
     assert len(bar.plain) == width
     # nothing filled when the total is unknown
     assert "█" not in bar.plain
@@ -122,7 +102,7 @@ def test_progress_bar_zero_total_is_all_muted():
 def test_progress_bar_negative_total_is_all_muted():
     """a negative total falls in the same unknown-total branch"""
     width = 25
-    bar = progress_bar(5, -1, width=width)
+    bar = progress_bar(5, -1, width = width)
     assert len(bar.plain) == width
     assert set(bar.plain) == {"░"}
 
@@ -130,7 +110,7 @@ def test_progress_bar_negative_total_is_all_muted():
 def test_progress_bar_full_length_matches_width():
     """a completed bar still has a plain string of exactly width chars"""
     width = 40
-    bar = progress_bar(10, 10, width=width)
+    bar = progress_bar(10, 10, width = width)
     assert len(bar.plain) == width
     assert bar.plain == "█" * width
 
@@ -138,21 +118,21 @@ def test_progress_bar_full_length_matches_width():
 def test_progress_bar_done_exceeds_total_is_full():
     """done past total clamps to a full bar of width filled blocks"""
     width = 30
-    bar = progress_bar(50, 10, width=width)
+    bar = progress_bar(50, 10, width = width)
     assert len(bar.plain) == width
     assert bar.plain == "█" * width
 
 
 def test_progress_bar_completed_uses_success_colour():
     """a finished bar tints the filled blocks with the success colour"""
-    bar = progress_bar(10, 10, width=40)
+    bar = progress_bar(10, 10, width = 40)
     span_styles = {span.style for span in bar.spans}
     assert PALETTE["success"] in span_styles
 
 
 def test_progress_bar_partial_uses_style_colour_not_success():
     """a half-finished bar uses the requested style for the filled part, not success"""
-    bar = progress_bar(5, 10, width=40, style="accent")
+    bar = progress_bar(5, 10, width = 40, style = "accent")
     span_styles = {span.style for span in bar.spans}
     # filled part carries the accent colour, the rest is muted
     assert PALETTE["accent"] in span_styles
@@ -163,7 +143,7 @@ def test_progress_bar_partial_uses_style_colour_not_success():
 
 def test_progress_bar_unknown_style_falls_back_to_primary():
     """an unrecognised style keyword falls back to the primary colour"""
-    bar = progress_bar(5, 10, width=40, style="not-a-real-style")
+    bar = progress_bar(5, 10, width = 40, style = "not-a-real-style")
     span_styles = {span.style for span in bar.spans}
     assert PALETTE["primary"] in span_styles
 

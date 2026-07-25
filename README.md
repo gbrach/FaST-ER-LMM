@@ -7,13 +7,19 @@
 
 # FaST-ER-LMM
 
-A PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM) for genome-wide association scans on CPUs and GPUs. Supports leave-one-chromosome-out (LOCO) analysis, permutation thresholds, and multi-GPU runs.
+A PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM) for genome-wide association scans on CPUs and GPUs. Scan many phenotypes, estimate significance thresholds with permutations, and split work across multiple GPUs.
 
 Based on [Lippert et al. (2011), Nature Methods](https://doi.org/10.1038/nmeth.1681).
+
+[Code map](docs/HOW_IT_WORKS.md)
 
 <p align="center">
   <img src=".assets/gif_truth_1g_vs_2g.gif" width="780" alt="Live progress dashboard for scans on one and two GPUs">
 </p>
+
+## Benchmark
+
+In the v1.2.0 benchmark, a simulated dataset with 1,000 samples, 100,000 variants, and 6,484 phenotypes took **9.6 minutes on one NVIDIA V100S (32 GB)** and **5.2 minutes on two**.
 
 ## Install
 
@@ -38,7 +44,7 @@ fasterlmm gwas \
   --bundle --device cpu
 ```
 
-LOCO, rank-based inverse normal transformation, and 100 permutations per phenotype are enabled by default. Use `--no-loco`, `--no-rint`, or `--n-perm` to change them.
+By default, each chromosome is tested using relatedness estimated from the other chromosomes (LOCO). Phenotype values are transformed using their ranks to follow a normal distribution, and each phenotype gets 100 permutations. Use `--no-loco`, `--no-rint`, or `--n-perm` to change these settings.
 
 Watch progress from another terminal:
 
@@ -77,7 +83,7 @@ After all tasks finish, gather their bundles with `fasterlmm concat runs/all/`. 
 
 ## Large datasets
 
-`extreme` uses a capped marker set for low-rank kinship and supports streaming genotype blocks to limit memory use:
+`extreme` estimates relatedness from a subset of variants and can read the test variants in blocks to reduce memory use:
 
 ```bash
 fasterlmm extreme \
@@ -87,7 +93,7 @@ fasterlmm extreme \
   --resident off --device cuda --bundle
 ```
 
-Use `--grm PREFIX` to supply a pre-pruned kinship marker set. `--resident auto` (the default) keeps genotypes in memory when they fit; `--resident off` forces streaming. This command runs LOCO only and defaults to float32; add `--float64` for double precision.
+`--grm-k` sets the target number of variants for estimating relatedness; `--grm PREFIX` supplies your own PLINK subset instead. `--block-size` sets how many test variants to read at a time. By default, genotypes stay in memory if they fit; `--resident off` always reads them in blocks. This command always uses LOCO and defaults to float32; add `--float64` for higher numerical precision.
 
 ## Outputs
 

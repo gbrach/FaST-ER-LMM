@@ -13,9 +13,7 @@ import pytest
 from fasterlmm.progress import pbar, write_status
 
 
-# ---------------------------------------------------------------------------
-# write_status
-# ---------------------------------------------------------------------------
+# WRITE_STATUS  -------
 
 
 def test_write_status_roundtrips_payload_plus_ts(tmp_path):
@@ -83,15 +81,13 @@ def test_write_status_leaves_no_tmp_sibling(tmp_path):
     assert not tmp.exists()
 
 
-# ---------------------------------------------------------------------------
-# pbar
-# ---------------------------------------------------------------------------
+# PBAR  -------
 
 
 def test_pbar_yields_input_items_in_order():
     """pbar is a pass-through iterator, same items same order whether tqdm is around or not"""
     items = list(range(11))
-    out = list(pbar(items, desc="scan", total=len(items)))
+    out = list(pbar(items, desc = "scan", total = len(items)))
     assert out == items
 
 

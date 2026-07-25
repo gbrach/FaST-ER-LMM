@@ -17,33 +17,26 @@ import pytest
 import torch
 
 from fasterlmm.io import standardise_columns
-from fasterlmm.lowrank import (
-    fit_delta_grid_lowrank,
-    lowrank_rotate,
-    snp_wald_scan_lowrank,
-)
+from fasterlmm.lowrank import (fit_delta_grid_lowrank, lowrank_rotate, snp_wald_scan_lowrank)
 
 DTYPE = torch.float64
 
 
-def _toy_panel(N=300, M_kin=80, M_test=60, P=4, D_cov=2, seed=19930909):
+def _toy_panel(N = 300, M_kin = 80, M_test = 60, P = 4, D_cov = 2, seed = 19930909):
     """same toy panel test_lowrank_parity.py builds: G pruned kinship, Z test variants, X = intercept + covars, Y with a planted effect"""
     rng = np.random.default_rng(seed)
-    G = rng.binomial(2, 0.3, size=(N, M_kin)).astype(np.float64)
-    Z = rng.binomial(2, 0.25, size=(N, M_test)).astype(np.float64)
+    G = rng.binomial(2, 0.3, size = (N, M_kin)).astype(np.float64)
+    Z = rng.binomial(2, 0.25, size = (N, M_test)).astype(np.float64)
     cov = rng.standard_normal((N, D_cov))
-    X = np.concatenate([np.ones((N, 1)), cov], axis=1)
+    X = np.concatenate([np.ones((N, 1)), cov], axis = 1)
     # plant signal: a couple test variants nudge the phenos, plus a kinship-shaped polygenic part
     g_std = standardise_columns(G)
     poly = g_std @ rng.standard_normal((M_kin, P)) / np.sqrt(M_kin)
     Y = poly + 0.4 * Z[:, [0]] * rng.standard_normal((1, P)) + rng.standard_normal((N, P))
     Y += X @ rng.standard_normal((X.shape[1], P))  # covariate effect, both paths regress it out
-    return (
-        torch.tensor(standardise_columns(G), dtype=DTYPE),
-        torch.tensor(standardise_columns(Z), dtype=DTYPE),
-        torch.tensor(X, dtype=DTYPE),
-        torch.tensor(Y, dtype=DTYPE),
-    )
+    return (torch.tensor(standardise_columns(G), dtype = DTYPE),
+            torch.tensor(standardise_columns(Z), dtype = DTYPE), torch.tensor(X, dtype = DTYPE),
+            torch.tensor(Y, dtype = DTYPE))
 
 
 def test_lowrank_external_fastlmm_parity():
@@ -59,7 +52,7 @@ def test_lowrank_external_fastlmm_parity():
     fit_gap = []
     f_gap, beta_gap, se_gap = [], [], []
     for p in range(P):
-        lmm = fastLMM(forcefullrank=False, X=Xn, Y=Yn[:, [p]], G=Gn)
+        lmm = fastLMM(forcefullrank = False, X = Xn, Y = Yn[:, [p]], G = Gn)
         h2 = lmm.findH2()  # ML, this nLLeval path has no REML branch so it matches our loss
         h2val = float(np.ravel(h2["h2"])[0])
         delta = (1.0 - h2val) / h2val
@@ -71,13 +64,13 @@ def test_lowrank_external_fastlmm_parity():
         fit_gap.append(abs(ld_ours - log_delta_fl))
 
         # per-variant F / beta / se at the COMMON fastlmm delta, so any gap is scan math not fit
-        out = lmm.nLLeval(delta=delta, snps=Zn)
+        out = lmm.nLLeval(delta = delta, snps = Zn)
         beta_fl = np.asarray(out["beta"]).flatten()
         var_fl = np.asarray(out["variance_beta"]).flatten()
         f_fl = beta_fl * beta_fl / var_fl
         se_fl = np.sqrt(var_fl)
 
-        ld_common = torch.full((1,), log_delta_fl, dtype=DTYPE)
+        ld_common = torch.full((1,), log_delta_fl, dtype = DTYPE)
         res = snp_wald_scan_lowrank(spec, ld_common, Z)
         f_me = res.f.flatten().numpy()
         beta_me = res.beta.flatten().numpy()

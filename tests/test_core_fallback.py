@@ -18,7 +18,7 @@ DTYPE = torch.float64
 def _spd(n: int, seed: int = 19930909) -> torch.Tensor:
     """a small symmetric positive-definite matrix to eigh"""
     rng = np.random.default_rng(seed)
-    A = rng.normal(size=(n, n + 5))
+    A = rng.normal(size = (n, n + 5))
     return torch.from_numpy(A @ A.T / (n + 5)).to(DTYPE)
 
 
@@ -39,7 +39,7 @@ def test_oom_then_cpu_retry_matches_direct(monkeypatch):
     assert calls["n"] == 2  # one failed attempt, one retry on cpu
     # the retry result is the genuine eigendecomposition
     recon = U @ torch.diag(s) @ U.T
-    assert torch.allclose(recon, K, atol=1e-9)
+    assert torch.allclose(recon, K, atol = 1e-9)
     assert torch.all(s[:-1] <= s[1:])  # ascending
 
 
@@ -51,7 +51,7 @@ def test_non_oom_runtimeerror_propagates(monkeypatch):
         raise RuntimeError("some unrelated linalg failure")
 
     monkeypatch.setattr(torch.linalg, "eigh", boom)
-    with pytest.raises(RuntimeError, match="unrelated"):
+    with pytest.raises(RuntimeError, match = "unrelated"):
         _eigh_with_cpu_fallback(K)
 
 
@@ -68,4 +68,4 @@ def test_clean_path_no_fallback(monkeypatch):
     monkeypatch.setattr(torch.linalg, "eigh", counted)
     s, U = _eigh_with_cpu_fallback(K)
     assert calls["n"] == 1
-    assert torch.allclose(U @ torch.diag(s) @ U.T, K, atol=1e-9)
+    assert torch.allclose(U @ torch.diag(s) @ U.T, K, atol = 1e-9)

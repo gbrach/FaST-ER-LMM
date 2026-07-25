@@ -23,61 +23,51 @@ RTOL = 1e-5
 ATOL = 1e-6
 
 
-def _run_gwas(geno: Path, pheno: Path,
-              outdir: Path, covar: Path | None) -> None:
+def _run_gwas(geno: Path, pheno: Path, outdir: Path, covar: Path | None) -> None:
     """drive the cli through the current python, --no-loco for the single-K kinship"""
-    argv = [sys.executable, "-m", "fasterlmm", "gwas",
-            "--geno", str(geno),
-            "--pheno", str(pheno),
-            "--outdir", str(outdir),
-            "--device", "cpu",
-            "--no-rint",
-            "--no-loco",
-            "--n-perm", "1",
-            "--bundle"]
+    argv = [sys.executable, "-m", "fasterlmm", "gwas", "--geno", str(geno), "--pheno", str(pheno), "--outdir",
+            str(outdir), "--device", "cpu", "--no-rint", "--no-loco", "--n-perm", "1", "--bundle"]
     if covar is not None:
         argv.extend(["--covar", str(covar)])
-    res = subprocess.run(argv, capture_output=True, text=True, check=False)
+    res = subprocess.run(argv, capture_output = True, text = True, check = False)
     if res.returncode != 0:
         raise RuntimeError(
             f"fasterlmm gwas --no-loco exited {res.returncode}\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope = "module")
 def no_covar_singlek(parity_geno: Path, parity_pheno: Path,
                      tmp_path_factory: pytest.TempPathFactory) -> pd.DataFrame:
     """one no-covar single-K scan amortised across the per-pheno parity tests"""
     out = tmp_path_factory.mktemp("parity_singlek_no_covar")
-    _run_gwas(parity_geno, parity_pheno, out, covar=None)
+    _run_gwas(parity_geno, parity_pheno, out, covar = None)
     return pd.read_parquet(str(out / "gwas_bundle.parquet"))
 
 
-@pytest.fixture(scope="module")
-def with_covar_singlek(parity_geno: Path, parity_pheno: Path,
-                       parity_covar: Path,
+@pytest.fixture(scope = "module")
+def with_covar_singlek(parity_geno: Path, parity_pheno: Path, parity_covar: Path,
                        tmp_path_factory: pytest.TempPathFactory) -> pd.DataFrame:
     """one with-covar single-K scan amortised across the per-pheno parity tests"""
     out = tmp_path_factory.mktemp("parity_singlek_with_covar")
-    _run_gwas(parity_geno, parity_pheno, out, covar=parity_covar)
+    _run_gwas(parity_geno, parity_pheno, out, covar = parity_covar)
     return pd.read_parquet(str(out / "gwas_bundle.parquet"))
 
 
-def _compare(gold: pd.DataFrame, ours: pd.DataFrame,
-             pheno: str, variant: str) -> None:
+def _compare(gold: pd.DataFrame, ours: pd.DataFrame, pheno: str, variant: str) -> None:
     """sort both sides by SNP id, then check the per-variant numerics column by column"""
     assert len(gold) == len(ours), (
         f"{pheno} {variant}: row count mismatch gold={len(gold)} ours={len(ours)}")
-    gold = gold.sort_values("SNP").reset_index(drop=True)
-    ours = ours.sort_values("SNP").reset_index(drop=True)
+    gold = gold.sort_values("SNP").reset_index(drop = True)
+    ours = ours.sort_values("SNP").reset_index(drop = True)
     if not (gold["SNP"].values == ours["SNP"].values).all():
         n_diff = int((gold["SNP"].values != ours["SNP"].values).sum())
         raise AssertionError(f"{pheno} {variant}: SNP id sets differ in {n_diff} rows after sorting")
 
     failures = []
     for col in PARITY_COLS:
-        a = np.asarray(gold[col].values, dtype=np.float64)
-        b = np.asarray(ours[col].values, dtype=np.float64)
-        if np.allclose(a, b, rtol=RTOL, atol=ATOL, equal_nan=True):
+        a = np.asarray(gold[col].values, dtype = np.float64)
+        b = np.asarray(ours[col].values, dtype = np.float64)
+        if np.allclose(a, b, rtol = RTOL, atol = ATOL, equal_nan = True):
             continue
         finite = np.isfinite(a) & np.isfinite(b)
         abs_diff = np.abs(a[finite] - b[finite])

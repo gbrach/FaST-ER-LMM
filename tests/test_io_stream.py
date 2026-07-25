@@ -16,17 +16,9 @@ import numpy as np
 import torch
 
 from fasterlmm.io import read_plink, read_phen, standardise_columns
-from fasterlmm.io_stream import (
-    BedHandle,
-    chrom_test_blocks,
-    open_aligned_bed,
-    read_all_standardised,
-    read_block,
-    read_grm_factor,
-    resident_chrom_blocks,
-    select_grm_markers,
-    stream_genotype_var,
-)
+from fasterlmm.io_stream import (BedHandle, chrom_test_blocks, open_aligned_bed, read_all_standardised,
+                                 read_block, read_grm_factor, resident_chrom_blocks, select_grm_markers,
+                                 stream_genotype_var)
 
 DTYPE = torch.float64
 
@@ -46,9 +38,7 @@ def _resident_aligned(example_geno, iid_order):
     return standardise_columns(Z), g.chrom
 
 
-# ---------------------------------------------------------------------------
-# open_aligned_bed: metadata + row alignment
-# ---------------------------------------------------------------------------
+# OPEN_ALIGNED_BED: METADATA + ROW ALIGNMENT  -------
 
 
 def test_open_aligned_bed_iid_is_bed_order_intersection(example_geno, example_pheno):
@@ -87,17 +77,15 @@ def test_open_aligned_bed_metadata_matches_read_plink(example_geno, example_phen
     assert np.array_equal(h.pos, g.pos)
 
 
-# ---------------------------------------------------------------------------
-# read_block: per-column standardise exactness vs resident
-# ---------------------------------------------------------------------------
+# READ_BLOCK: PER-COLUMN STANDARDISE EXACTNESS VS RESIDENT  -------
 
 
 def test_read_block_matches_resident_columns(example_geno, example_pheno):
     """a fancy-indexed block read equals the resident standardised columns it names"""
     h = _handle(example_geno, example_pheno)
     Z_res, _ = _resident_aligned(example_geno, h.iid)
-    pick = np.array([0, 3, 7, 11, 500, 999, 1499], dtype=np.int64)
-    blk = read_block(h, pick, dtype=DTYPE).numpy()
+    pick = np.array([0, 3, 7, 11, 500, 999, 1499], dtype = np.int64)
+    blk = read_block(h, pick, dtype = DTYPE).numpy()
     assert blk.shape == (len(h.iid), len(pick))
     assert np.abs(blk - Z_res[:, pick]).max() < 1e-12
 
@@ -105,8 +93,8 @@ def test_read_block_matches_resident_columns(example_geno, example_pheno):
 def test_read_block_dtype_cast(example_geno, example_pheno):
     """the returned tensor lands at the requested dtype, default float32"""
     h = _handle(example_geno, example_pheno)
-    cidx = np.arange(20, dtype=np.int64)
-    assert read_block(h, cidx, dtype=torch.float64).dtype == torch.float64
+    cidx = np.arange(20, dtype = np.int64)
+    assert read_block(h, cidx, dtype = torch.float64).dtype == torch.float64
     assert read_block(h, cidx).dtype == torch.float32  # default is fp32
 
 
@@ -118,16 +106,14 @@ def test_streamed_reconstruction_equals_resident(example_geno, example_pheno):
     seen = 0
     # small block_size so several blocks land per chromosome on the 1500-variant bed
     for c in sorted(set(h.chrom.tolist())):
-        for blk, cidx in chrom_test_blocks(h, c, block_size=137, dtype=DTYPE):
+        for blk, cidx in chrom_test_blocks(h, c, block_size = 137, dtype = DTYPE):
             Z_stream[:, cidx] = blk.numpy()
             seen += len(cidx)
     assert seen == len(h.sid)  # every variant got reassembled exactly once
     assert np.abs(Z_stream - Z_res).max() < 1e-12
 
 
-# ---------------------------------------------------------------------------
-# select_grm_markers: strided pick spreads across chromosomes
-# ---------------------------------------------------------------------------
+# SELECT_GRM_MARKERS: STRIDED PICK SPREADS ACROSS CHROMOSOMES  -------
 
 
 def test_select_grm_markers_spreads_across_chroms(example_geno, example_pheno):
@@ -153,39 +139,35 @@ def test_select_grm_markers_k_ge_M_returns_all(example_geno, example_pheno):
 def test_select_grm_markers_deterministic(example_geno, example_pheno):
     """the strided pick is deterministic for a given k -- no randomness despite the seed arg"""
     h = _handle(example_geno, example_pheno)
-    a = select_grm_markers(h, 173, seed=1)
-    b = select_grm_markers(h, 173, seed=999)
+    a = select_grm_markers(h, 173, seed = 1)
+    b = select_grm_markers(h, 173, seed = 999)
     assert np.array_equal(a, b)  # linspace stride ignores the seed entirely
 
 
-# ---------------------------------------------------------------------------
-# read_grm_factor == read_block on the same cols
-# ---------------------------------------------------------------------------
+# READ_GRM_FACTOR == READ_BLOCK ON THE SAME COLS  -------
 
 
 def test_read_grm_factor_equals_read_block(example_geno, example_pheno):
     """read_grm_factor is just read_block under another name, identical on the same cols"""
     h = _handle(example_geno, example_pheno)
     cols = select_grm_markers(h, 120)
-    a = read_grm_factor(h, cols, dtype=DTYPE)
-    b = read_block(h, cols, dtype=DTYPE)
+    a = read_grm_factor(h, cols, dtype = DTYPE)
+    b = read_block(h, cols, dtype = DTYPE)
     assert torch.equal(a, b)
     assert a.shape == (len(h.iid), len(cols))
 
 
-# ---------------------------------------------------------------------------
-# read_all_standardised: resident slab == streamed reassembly
-# ---------------------------------------------------------------------------
+# READ_ALL_STANDARDISED: RESIDENT SLAB == STREAMED REASSEMBLY  -------
 
 
 def test_read_all_standardised_equals_streamed_blocks(example_geno, example_pheno):
     """the resident whole-matrix slab equals the per-chrom chrom_test_blocks reassembly"""
     h = _handle(example_geno, example_pheno)
-    Z = read_all_standardised(h, block_size=137, dtype=DTYPE)
+    Z = read_all_standardised(h, block_size = 137, dtype = DTYPE)
     assert Z.shape == (len(h.iid), len(h.sid))
     Z_chk = torch.zeros_like(Z)
     for c in sorted(set(h.chrom.tolist())):
-        for blk, cidx in chrom_test_blocks(h, c, block_size=137, dtype=DTYPE):
+        for blk, cidx in chrom_test_blocks(h, c, block_size = 137, dtype = DTYPE):
             Z_chk[:, cidx] = blk
     assert torch.equal(Z, Z_chk)
 
@@ -193,23 +175,21 @@ def test_read_all_standardised_equals_streamed_blocks(example_geno, example_phen
 def test_read_all_standardised_equals_resident_read_plink(example_geno, example_pheno):
     """the slab also matches a plain read_plink + standardise_columns of the same row order"""
     h = _handle(example_geno, example_pheno)
-    Z = read_all_standardised(h, block_size=512, dtype=DTYPE).numpy()
+    Z = read_all_standardised(h, block_size = 512, dtype = DTYPE).numpy()
     Z_res, _ = _resident_aligned(example_geno, h.iid)
     assert np.abs(Z - Z_res).max() < 1e-12
 
 
-# ---------------------------------------------------------------------------
-# resident_chrom_blocks: slices a resident slab, matches the disk path
-# ---------------------------------------------------------------------------
+# RESIDENT_CHROM_BLOCKS: SLICES A RESIDENT SLAB, MATCHES THE DISK PATH  -------
 
 
 def test_resident_chrom_blocks_match_chrom_test_blocks(example_geno, example_pheno):
     """slicing the resident slab yields blocks identical to the on-disk chrom_test_blocks"""
     h = _handle(example_geno, example_pheno)
-    Z = read_all_standardised(h, block_size=512, dtype=DTYPE)
+    Z = read_all_standardised(h, block_size = 512, dtype = DTYPE)
     for c in sorted(set(h.chrom.tolist())):
-        disk = list(chrom_test_blocks(h, c, block_size=137, dtype=DTYPE))
-        res = list(resident_chrom_blocks(Z, h.chrom, c, block_size=137))
+        disk = list(chrom_test_blocks(h, c, block_size = 137, dtype = DTYPE))
+        res = list(resident_chrom_blocks(Z, h.chrom, c, block_size = 137))
         assert len(disk) == len(res)
         for (d_blk, d_idx), (r_blk, r_idx) in zip(disk, res):
             assert np.array_equal(d_idx, r_idx)
@@ -219,16 +199,14 @@ def test_resident_chrom_blocks_match_chrom_test_blocks(example_geno, example_phe
 def test_resident_chrom_blocks_cover_chrom_columns(example_geno, example_pheno):
     """the per-chrom column indices reassemble to exactly that chromosome's columns"""
     h = _handle(example_geno, example_pheno)
-    Z = read_all_standardised(h, block_size=512, dtype=DTYPE)
+    Z = read_all_standardised(h, block_size = 512, dtype = DTYPE)
     c = sorted(set(h.chrom.tolist()))[0]
     expected = np.where(h.chrom == c)[0]
-    gathered = np.concatenate([cidx for _, cidx in resident_chrom_blocks(Z, h.chrom, c, block_size=137)])
+    gathered = np.concatenate([cidx for _, cidx in resident_chrom_blocks(Z, h.chrom, c, block_size = 137)])
     assert np.array_equal(gathered, expected)
 
 
-# ---------------------------------------------------------------------------
-# stream_genotype_var: raw nan-aware per-variant variance
-# ---------------------------------------------------------------------------
+# STREAM_GENOTYPE_VAR: RAW NAN-AWARE PER-VARIANT VARIANCE  -------
 
 
 def test_stream_genotype_var_matches_nanvar(example_geno, example_pheno):
@@ -238,8 +216,8 @@ def test_stream_genotype_var_matches_nanvar(example_geno, example_pheno):
     pos = {s: i for i, s in enumerate(g.iid)}
     ridx = [pos[s] for s in h.iid]
     raw = g.Z[ridx, :]
-    expected = np.nanvar(raw, axis=0)
-    got = stream_genotype_var(h, block_size=137)
+    expected = np.nanvar(raw, axis = 0)
+    got = stream_genotype_var(h, block_size = 137)
     assert got.shape == (len(h.sid),)
     assert np.abs(got - expected).max() < 1e-12
 
@@ -247,6 +225,6 @@ def test_stream_genotype_var_matches_nanvar(example_geno, example_pheno):
 def test_stream_genotype_var_block_size_invariant(example_geno, example_pheno):
     """the streamed variance is identical regardless of block_size -- it's a per-column reduction"""
     h = _handle(example_geno, example_pheno)
-    small = stream_genotype_var(h, block_size=64)
-    whole = stream_genotype_var(h, block_size=100000)  # one block over the whole bed
+    small = stream_genotype_var(h, block_size = 64)
+    whole = stream_genotype_var(h, block_size = 100000)  # one block over the whole bed
     assert np.array_equal(small, whole)

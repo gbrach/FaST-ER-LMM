@@ -1,7 +1,14 @@
 """
 Assemble a gwas scan into one parquet bundle
-Per pheno the cli builds a 16-column table -- the 14 fastlmm single_snp columns plus a threshold and a significant flag.  BundleWriter streams those straight into the bundle while the scan is still running, so the bundle lands alongside the gpu work instead of in a slow read-everything-back pass afterwards
-The bundle is a directory of parquet parts, one part per writer-pool thread, so the per-pheno compression runs fully parallel with no lock in the way.  A directory of parts is itself a valid dataset, pandas / pyarrow / duckdb all read it back exactly like one file.  A multi-gpu run drops a shard{i}.parquet directory of parts per worker under .bundle_parts/, merge_bundle_parts flattens every part into the gwas_bundle.parquet dataset.  bundle_outdir is the fallback route, it rebuilds the bundle from a tree of per-pheno gwas.tsv files when only that tree survived
+Per pheno the cli builds a 16-column table -- the 14 fastlmm single_snp columns plus a threshold and a
+significant flag.  BundleWriter streams those straight into the bundle while the scan is still running, so the
+bundle lands alongside the gpu work instead of in a slow read-everything-back pass afterwards
+The bundle is a directory of parquet parts, one part per writer-pool thread, so the per-pheno compression runs
+fully parallel with no lock in the way.  A directory of parts is itself a valid dataset, pandas / pyarrow /
+duckdb all read it back exactly like one file.  A multi-gpu run drops a shard{i}.parquet directory of parts
+per worker under .bundle_parts/, merge_bundle_parts flattens every part into the gwas_bundle.parquet dataset.
+bundle_outdir is the fallback route, it rebuilds the bundle from a tree of per-pheno gwas.tsv files when only
+that tree survived
 every route lands the same 16-column bundle, so downstream code never has to care how the scan was run
 """
 
@@ -23,39 +30,28 @@ BUNDLE_PARTS_DIRNAME = ".bundle_parts"
 BUNDLE_FILENAME = "gwas_bundle.parquet"
 _PARQUET_COMPRESSION = "snappy"
 
-# the per-pheno gwas.tsv is plain text, so reading it back needs the column types spelled out --
-# csv inference on its own turns the all-zero Mixing column and the integer-valued Chr / ChrPos
-# into ints, wich then wouldnt line up with the floats the streamed route keeps.  this map mirrors
-# the table cli._write_pheno builds, the two have to move together
-_GWAS_TSV_TYPES = {
-    "sid_index": pa.int64(),
-    "SNP": pa.string(),
-    "Chr": pa.float64(),
-    "GenDist": pa.float64(),
-    "ChrPos": pa.float64(),
-    "PValue": pa.float64(),
-    "SnpWeight": pa.float64(),
-    "SnpWeightSE": pa.float64(),
-    "EffectSize": pa.float64(),
-    "SnpFractVarExpl": pa.float64(),
-    "Mixing": pa.float64(),
-    "Nullh2": pa.float64(),
-    "Pheno": pa.string(),
-    "PhenoCount": pa.int64(),
-}
+# STREAMING -------
 
 
 class BundleWriter:
     """
     Per-process bundle writer, one parquet part per writer-pool thread
-    The bundle is a directory of parquet parts, so handing each pool thread its own part lets every thread compress and write its phenos fully in parallel -- no lock around write_table, wich a single shared ParquetWriter would otherwise force since pyarrow's writer is not thread-safe.  Each thread's writer is built lazily on its first append, the only shared state left is the part counter
-    Each finished pheno is appended as its own row group the moment its scan + write lands, so when the gpu work ends the bundle is already on disk -- no separate read-everything-back pass.  Parts stream into a .tmp directory wich is renamed into place on close, so a crashed run never leaves a half-built bundle behind.  Pheno arrives dictionary-encoded for a cheap table build and gets decoded back to plain string here so the bundle matches the bundle_outdir route
+    The bundle is a directory of parquet parts, so handing each pool thread its own part lets every thread
+    compress and write its phenos fully in parallel -- no lock around write_table, wich a single shared
+    ParquetWriter would otherwise force since pyarrow's writer is not thread-safe.  Each thread's writer is
+    built lazily on its first append, the only shared state left is the part counter
+    Each finished pheno is appended as its own row group the moment its scan + write lands, so when the gpu
+    work ends the bundle is already on disk -- no separate read-everything-back pass.  Parts stream into a
+    .tmp directory wich is renamed into place on close, so a crashed run never leaves a half-built bundle
+    behind.  Pheno arrives dictionary-encoded for a cheap table build and gets decoded back to plain string
+    here so the bundle matches the bundle_outdir route
     """
 
     def __init__(self, path: Path | str) -> None:
         """
         Open the staging dir for a fresh bundle, clearing any stale .tmp left by an interrupted run
-        Parts stream into a .tmp sibling and only get renamed into place on close, so a crash never leaves a half-built bundle behind
+        Parts stream into a .tmp sibling and only get renamed into place on close, so a crash never leaves a
+        half-built bundle behind
         """
         self._dir = Path(path)
         self._tmp = self._dir.with_name(self._dir.name + ".tmp")
@@ -65,14 +61,17 @@ class BundleWriter:
             shutil.rmtree(self._tmp)
         elif self._tmp.exists():
             self._tmp.unlink()
-        self._tmp.mkdir(parents=True)
+        self._tmp.mkdir(parents = True)
         self._local = threading.local()
         self._lock = threading.Lock()
         self._writers: list[pq.ParquetWriter] = []
         self._next_part = 0
 
     def append(self, table: pa.Table) -> None:
-        """Append one pheno's table as a row group on the calling thread's own part.  Lock-free apart from claiming a part the first time a given thread lands here"""
+        """
+        Append one pheno's table as a row group on the calling thread's own part.  Lock-free apart from
+        claiming a part the first time a given thread lands here
+        """
         # the dictionary cast is pure and thread-local, no sharing
         pheno_i = table.schema.get_field_index("Pheno")
         table = table.set_column(pheno_i, "Pheno", table.column("Pheno").cast(pa.string()))
@@ -81,8 +80,8 @@ class BundleWriter:
             # first append on this thread -- open its own part under the lock.  the lock guards only
             # this one-off setup, the counter and the writers list, all tiny next to write_table
             with self._lock:
-                writer = pq.ParquetWriter(self._tmp / f"part{self._next_part}.parquet",
-                                          table.schema, compression=_PARQUET_COMPRESSION)
+                writer = pq.ParquetWriter(self._tmp / f"part{self._next_part}.parquet", table.schema,
+                                          compression = _PARQUET_COMPRESSION)
                 self._next_part += 1
                 self._writers.append(writer)
             self._local.writer = writer
@@ -90,7 +89,10 @@ class BundleWriter:
         writer.write_table(table)
 
     def bytes_on_disk(self) -> int:
-        """Total size of the streaming parts right now, feeds the write-throughput readout while the bundle drains"""
+        """
+        Total size of the streaming parts right now, feeds the write-throughput readout while the bundle
+        drains
+        """
         total = 0
         for part in self._tmp.glob("*.parquet"):
             try:
@@ -100,7 +102,9 @@ class BundleWriter:
         return total
 
     def close(self) -> Path:
-        """Close every per-thread writer and rename the .tmp directory into place.  Returns the final bundle path"""
+        """
+        Close every per-thread writer and rename the .tmp directory into place.  Returns the final bundle path
+        """
         for writer in self._writers:
             writer.close()
         self._writers = []
@@ -113,10 +117,27 @@ class BundleWriter:
         return self._dir
 
 
+# REBUILDING FROM TSVS -------
+
+# the per-pheno gwas.tsv is plain text, so reading it back needs the column types spelled out --
+# csv inference on its own turns the all-zero Mixing column and the integer-valued Chr / ChrPos
+# into ints, wich then wouldnt line up with the floats the streamed route keeps.  this map mirrors
+# the table cli._write_pheno builds, the two have to move together
+_GWAS_TSV_TYPES = {"sid_index": pa.int64(), "SNP": pa.string(), "Chr": pa.float64(), "GenDist": pa.float64(),
+                   "ChrPos": pa.float64(), "PValue": pa.float64(), "SnpWeight": pa.float64(),
+                   "SnpWeightSE": pa.float64(), "EffectSize": pa.float64(), "SnpFractVarExpl": pa.float64(),
+                   "Mixing": pa.float64(), "Nullh2": pa.float64(), "Pheno": pa.string(),
+                   "PhenoCount": pa.int64()}
+
+
+
 def bundle_outdir(outdir: Path | str, out_path: Path | str | None = None) -> Path:
     """
     Rebuild the bundle from a tree of per-pheno gwas.tsv files
-    The fallback route, for when only the per-pheno-dirs tree survived and the streamed bundle didnt get written.  Walks outdir for the gwas.tsv files, reads the threshold.txt sitting next to each one, appends a threshold + a significant flag so the bundle matches a streamed one, and streams every table trough a single ParquetWriter so the rebuild never holds the whole thing in memory
+    The fallback route, for when only the per-pheno-dirs tree survived and the streamed bundle didnt get
+    written.  Walks outdir for the gwas.tsv files, reads the threshold.txt sitting next to each one, appends a
+    threshold + a significant flag so the bundle matches a streamed one, and streams every table trough a
+    single ParquetWriter so the rebuild never holds the whole thing in memory
     """
     outdir = Path(outdir)
     out_path = Path(out_path) if out_path else outdir / BUNDLE_FILENAME
@@ -125,18 +146,18 @@ def bundle_outdir(outdir: Path | str, out_path: Path | str | None = None) -> Pat
         raise FileNotFoundError(f"no gwas.tsv under {outdir}")
     # pin every column type (see _GWAS_TSV_TYPES) so the bundle lines up field-for-field with the
     # streamed route, instead of letting csv inference guess from the text
-    parse = pacsv.ParseOptions(delimiter="\t")
-    convert = pacsv.ConvertOptions(column_types=_GWAS_TSV_TYPES)
+    parse = pacsv.ParseOptions(delimiter = "\t")
+    convert = pacsv.ConvertOptions(column_types = _GWAS_TSV_TYPES)
     tmp_path = out_path.with_name(out_path.name + ".tmp")
     writer = None
     try:
         for tsv in tsvs:
-            table = pacsv.read_csv(tsv, parse_options=parse, convert_options=convert)
+            table = pacsv.read_csv(tsv, parse_options = parse, convert_options = convert)
             thresh = float((tsv.parent / "threshold.txt").read_text())
             table = table.append_column("threshold", pa.array(np.full(table.num_rows, thresh)))
             table = table.append_column("significant", pc.less(table.column("PValue"), thresh))
             if writer is None:
-                writer = pq.ParquetWriter(tmp_path, table.schema, compression=_PARQUET_COMPRESSION)
+                writer = pq.ParquetWriter(tmp_path, table.schema, compression = _PARQUET_COMPRESSION)
             writer.write_table(table)
     finally:
         if writer is not None:
@@ -146,10 +167,19 @@ def bundle_outdir(outdir: Path | str, out_path: Path | str | None = None) -> Pat
     return out_path
 
 
+# GATHERING SHARDS -------
+
 def merge_bundle_parts(outdir: Path | str, out_path: Path | str | None = None) -> Path:
     """
-    Gather the per-shard bundle parts a multi-gpu run streamed under .bundle_parts/ into the gwas_bundle.parquet dataset
-    Each shard worker commits a shard{i}.parquet directory of per-thread parts, and a directory of parquet parts is itself a valid dataset -- pandas, pyarrow, duckdb and arrow all open read_parquet(directory) the same way they open one file.  So the merge just flattens every part into the bundle directory under a shard-tagged name, no rewrite of the tens of gigabytes they weigh.  Renames are same-filesystem so this lands well under a second whatever the bundle weighs.  Stages the moves in a .tmp directory and renames the whole thing into place at the end, so a reader -- a snakemake job downstream, say -- never catches a bundle thats only half its parts.  Drops the now-empty .bundle_parts on the way out
+    Gather the per-shard bundle parts a multi-gpu run streamed under .bundle_parts/ into the
+    gwas_bundle.parquet dataset
+    Each shard worker commits a shard{i}.parquet directory of per-thread parts, and a directory of parquet
+    parts is itself a valid dataset -- pandas, pyarrow, duckdb and arrow all open read_parquet(directory) the
+    same way they open one file.  So the merge just flattens every part into the bundle directory under a
+    shard-tagged name, no rewrite of the tens of gigabytes they weigh.  Renames are same-filesystem so this
+    lands well under a second whatever the bundle weighs.  Stages the moves in a .tmp directory and renames
+    the whole thing into place at the end, so a reader -- a snakemake job downstream, say -- never catches a
+    bundle thats only half its parts.  Drops the now-empty .bundle_parts on the way out
     """
     outdir = Path(outdir)
     parts_dir = outdir / BUNDLE_PARTS_DIRNAME
@@ -179,7 +209,7 @@ def merge_bundle_parts(outdir: Path | str, out_path: Path | str | None = None) -
         shutil.rmtree(tmp_dir)
     elif tmp_dir.exists():
         tmp_dir.unlink()
-    tmp_dir.mkdir(parents=True)
+    tmp_dir.mkdir(parents = True)
     for shard_tag, part in tagged_parts:
         part.replace(tmp_dir / f"{shard_tag}_{part.name}")
     # a stale bundle from an earlier run, file or directory, would block the rename of the new one
@@ -188,5 +218,5 @@ def merge_bundle_parts(outdir: Path | str, out_path: Path | str | None = None) -
     elif out_path.exists():
         out_path.unlink()
     tmp_dir.replace(out_path)
-    shutil.rmtree(parts_dir, ignore_errors=True)
+    shutil.rmtree(parts_dir, ignore_errors = True)
     return out_path

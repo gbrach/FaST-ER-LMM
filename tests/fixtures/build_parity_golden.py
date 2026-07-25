@@ -1,5 +1,9 @@
 """
 Builds the fastlmm golden reference against the parity fixture at tests/_data/parity/
+author: gbrach
+last updated: 2026-09-09
+version log: 2026-09-09: style pass
+
 For each of the 5 phenos and each of (no_covar, with_covar) variants, runs fastlmm.association.single_snp
 in both LOCO and single-K (leave_out_one_chrom False) and saves each returned DataFrame to
 tests/_data/parity/golden/<pheno>__<variant>.parquet (LOCO) and <pheno>__<variant>__singlek.parquet
@@ -37,18 +41,15 @@ def write_phen(strain_to_y: dict, path: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--force", action = "store_true")
     args = ap.parse_args()
 
-    if not BED_PREFIX.with_suffix(".bed").exists():
-        sys.exit(f"parity fixture missing at {DATA}, run tests/fixtures/build_parity_fixture.py first")
-
-    OUT.mkdir(parents=True, exist_ok=True)
-    pheno_df = pd.read_csv(PHENO_TSV, sep="\t")
+    OUT.mkdir(parents = True, exist_ok = True)
+    pheno_df = pd.read_csv(PHENO_TSV, sep = "\t")
     phenos = list(pheno_df.columns[1:])
     print(f"phenos: {phenos}")
 
-    tmp = Path(tempfile.mkdtemp(prefix="parity_golden_", dir=str(REPO / "tests" / "_runs")))
+    tmp = Path(tempfile.mkdtemp(prefix = "parity_golden_", dir = str(REPO / "tests" / "_runs")))
     try:
         for p in phenos:
             sub = pheno_df[["Strain", p]].dropna()
@@ -62,16 +63,13 @@ def main() -> None:
                     if out_path.exists() and not args.force:
                         print(f"  skip {out_path.name}")
                         continue
-                    df = single_snp(test_snps=str(BED_PREFIX),
-                                    pheno=str(phen_path),
-                                    covar=str(covar) if covar is not None else None,
-                                    leave_out_one_chrom=loco,
-                                    count_A1=True,
-                                    output_file_name=None)
+                    df = single_snp(test_snps = str(BED_PREFIX), pheno = str(phen_path),
+                                    covar = str(covar) if covar is not None else None,
+                                    leave_out_one_chrom = loco, count_A1 = True, output_file_name = None)
                     df.to_parquet(out_path)
                     print(f"  wrote {out_path.name}  rows={len(df)}  top-p={df.PValue.min():.3g}")
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(tmp, ignore_errors = True)
 
     print(f"\ngolden ref at {OUT}")
     print(f"files: {len(list(OUT.glob('*.parquet')))}  total: {sum(f.stat().st_size for f in OUT.glob('*.parquet')) / 1024:.0f} KB")

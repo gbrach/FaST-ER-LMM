@@ -12,7 +12,7 @@ import pytest
 from fasterlmm.cli import _default_write_workers, _parse_shard, _resource_stats
 
 
-# ---- _parse_shard --------------------------------------------------------
+# _PARSE_SHARD  -------
 
 def test_parse_shard_valid() -> None:
     """a well-formed X/N parses to the integer pair"""
@@ -39,7 +39,7 @@ def test_parse_shard_negative_raises() -> None:
         _parse_shard("-1/4")
 
 
-# ---- _default_write_workers ---------------------------------------------
+# _DEFAULT_WRITE_WORKERS  -------
 
 def test_default_write_workers_floor_is_one() -> None:
     """the pool size never drops below one, whatever the proc count"""
@@ -56,7 +56,7 @@ def test_default_write_workers_shrinks_with_more_procs() -> None:
     assert four <= one
 
 
-# ---- _resource_stats -----------------------------------------------------
+# _RESOURCE_STATS  -------
 
 def test_resource_stats_cpu_has_rss() -> None:
     """on linux the cpu snapshot carries current + peak host rss, both finite and non-negative"""
@@ -75,7 +75,7 @@ def test_resource_stats_cpu_no_gpu_keys() -> None:
     assert not any(k.startswith("gpu_") for k in stats)
 
 
-# ---- umbrella entry (subprocess) ----------------------------------------
+# UMBRELLA ENTRY (SUBPROCESS)  -------
 
 # the four subcommands the banner advertises, every banner print has to name all of them
 _SUBCOMMANDS = ("gwas", "extreme", "watch", "concat")
@@ -83,8 +83,8 @@ _SUBCOMMANDS = ("gwas", "extreme", "watch", "concat")
 
 def _run_module(*argv: str) -> subprocess.CompletedProcess:
     """invoke the umbrella as a module so we exercise the real __main__ dispatch, not an in-proc import"""
-    return subprocess.run([sys.executable, "-m", "fasterlmm", *argv],
-                          capture_output=True, text=True, check=False)
+    return subprocess.run([sys.executable, "-m", "fasterlmm", *argv], capture_output = True, text = True,
+                          check = False)
 
 
 def test_umbrella_bare_prints_banner() -> None:

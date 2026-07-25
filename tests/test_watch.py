@@ -14,23 +14,19 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
 
-from fasterlmm.watch import (
-    _aggregate, _all_done, _build_overall_panel, _build_shard_panel,
-    _discover_shards, _fmt_age, _fmt_eta, _fmt_huge, _fmt_mem, _fmt_rate,
-    _read_payload, _render,
-)
+from fasterlmm.watch import (_aggregate, _all_done, _build_overall_panel, _build_shard_panel,
+                             _discover_shards, _fmt_age, _fmt_eta, _fmt_huge, _fmt_mem, _fmt_rate,
+                             _read_payload, _render)
 
 
 def _plain(renderable, width: int = 100) -> str:
     """render a rich object to plain (uncoloured) text so a test can grep the fields out of it"""
     buf = io.StringIO()
-    Console(file=buf, width=width, no_color=True, legacy_windows=False).print(renderable)
+    Console(file = buf, width = width, no_color = True, legacy_windows = False).print(renderable)
     return buf.getvalue()
 
 
-# ---------------------------------------------------------------------------
-# formatters
-# ---------------------------------------------------------------------------
+# FORMATTERS  -------
 
 def test_fmt_eta_units():
     """h/m/s compact string, none / non-positive / nan all collapse to a dash"""
@@ -80,9 +76,7 @@ def test_fmt_age_freshness():
     assert _fmt_age(time.time() - 300).endswith("m ago")
 
 
-# ---------------------------------------------------------------------------
-# status snapshot reading + shard discovery
-# ---------------------------------------------------------------------------
+# STATUS SNAPSHOT READING + SHARD DISCOVERY  -------
 
 def test_read_payload_roundtrip_and_missing(tmp_path):
     """a written json reads back, a missing or half-written file comes back None not an exception"""
@@ -114,20 +108,16 @@ def test_all_done_state_machine():
     assert _all_done(None, {}) is False
 
 
-# ---------------------------------------------------------------------------
-# aggregation
-# ---------------------------------------------------------------------------
+# AGGREGATION  -------
 
 def test_aggregate_rolls_shards_up():
     """phenos sum across shards, elapsed is the slowest shard, rss sums, rate is done over wall"""
-    states = [
-        {"phenos_done": 10, "phenos_total": 50, "elapsed_s": 5.0, "N": 100, "M": 200,
-         "n_perm": 100, "loco": True, "device": "cuda:0", "rss_mb": 1000, "peak_rss_mb": 1200,
-         "writes_pending": 2, "state": "scanning"},
-        {"phenos_done": 6, "phenos_total": 50, "elapsed_s": 8.0, "N": 100, "M": 200,
-         "n_perm": 100, "loco": True, "device": "cuda:1", "rss_mb": 900, "peak_rss_mb": 1100,
-         "writes_pending": 1, "state": "scanning"},
-    ]
+    states = [{"phenos_done": 10, "phenos_total": 50, "elapsed_s": 5.0, "N": 100, "M": 200, "n_perm": 100,
+               "loco": True, "device": "cuda:0", "rss_mb": 1000, "peak_rss_mb": 1200, "writes_pending": 2,
+               "state": "scanning"},
+              {"phenos_done": 6, "phenos_total": 50, "elapsed_s": 8.0, "N": 100, "M": 200, "n_perm": 100,
+               "loco": True, "device": "cuda:1", "rss_mb": 900, "peak_rss_mb": 1100, "writes_pending": 1,
+               "state": "scanning"}]
     agg = _aggregate(states)
     assert agg["phenos_done"] == 16
     assert agg["phenos_total"] == 100
@@ -150,16 +140,13 @@ def test_aggregate_all_done_and_zero_elapsed():
     assert agg["eta_s"] is None
 
 
-# ---------------------------------------------------------------------------
-# panels
-# ---------------------------------------------------------------------------
+# PANELS  -------
 
 def test_overall_panel_renders_key_fields():
     """the headline panel carries the title, a progress bar, the phenos count and the Wald-op line"""
-    agg = _aggregate([{"phenos_done": 16, "phenos_total": 100, "elapsed_s": 8.0, "N": 100,
-                       "M": 200, "n_perm": 100, "loco": True, "device": "cuda:0",
-                       "rss_mb": 1900, "state": "scanning"}])
-    panel = _build_overall_panel(agg, n_shards=2, run_name="myrun", width=100)
+    agg = _aggregate([{"phenos_done": 16, "phenos_total": 100, "elapsed_s": 8.0, "N": 100, "M": 200,
+                       "n_perm": 100, "loco": True, "device": "cuda:0", "rss_mb": 1900, "state": "scanning"}])
+    panel = _build_overall_panel(agg, n_shards = 2, run_name = "myrun", width = 100)
     assert isinstance(panel, Panel)
     text = _plain(panel)
     assert "FaST-ER-LMM" in text
@@ -172,47 +159,45 @@ def test_overall_panel_renders_key_fields():
 def test_shard_panel_loco_strip_and_drain_and_gpu():
     """a scanning shard shows the loco dot strip, the gpu-memory line, and the drain readout when writing"""
     scanning = {"state": "scanning", "phenos_done": 5, "phenos_total": 20, "elapsed_s": 4.0,
-                "device": "cuda:0", "chroms_total": 16, "chroms_done": 7,
-                "gpu_alloc_mb": 8000, "gpu_total_mb": 32000, "gpu_peak_alloc_mb": 9000,
-                "rss_mb": 1500, "peak_rss_mb": 1600, "ts": time.time()}
-    text = _plain(_build_shard_panel(0, scanning, n_shards=2, panel_width=60))
+                "device": "cuda:0", "chroms_total": 16, "chroms_done": 7, "gpu_alloc_mb": 8000,
+                "gpu_total_mb": 32000, "gpu_peak_alloc_mb": 9000, "rss_mb": 1500, "peak_rss_mb": 1600,
+                "ts": time.time()}
+    text = _plain(_build_shard_panel(0, scanning, n_shards = 2, panel_width = 60))
     assert "GPU 0" in text
     assert "LOCO" in text and "chr 7/16" in text
     assert "GPU mem" in text
 
     writing = {"state": "writing", "phenos_done": 20, "phenos_total": 20, "elapsed_s": 30.0,
-               "device": "cuda:0", "writes_pending": 4, "write_cpu_frac": 0.4,
-               "write_mb_s": 120.0, "ts": time.time()}
-    dtext = _plain(_build_shard_panel(1, writing, n_shards=2, panel_width=60))
+               "device": "cuda:0", "writes_pending": 4, "write_cpu_frac": 0.4, "write_mb_s": 120.0,
+               "ts": time.time()}
+    dtext = _plain(_build_shard_panel(1, writing, n_shards = 2, panel_width = 60))
     assert "drain" in dtext
     assert "MB/s" in dtext
 
 
-# ---------------------------------------------------------------------------
-# render branch
-# ---------------------------------------------------------------------------
+# RENDER BRANCH  -------
 
 def test_render_multi_shard_is_group():
     """with discovered shards the frame is a Group (overall panel + the shard views)"""
-    shards = {0: {"state": "scanning", "phenos_done": 5, "phenos_total": 20, "elapsed_s": 4.0,
-                  "N": 100, "M": 200, "n_perm": 100, "device": "cuda:0"},
-              1: {"state": "scanning", "phenos_done": 4, "phenos_total": 20, "elapsed_s": 4.0,
-                  "N": 100, "M": 200, "n_perm": 100, "device": "cuda:1"}}
-    out = _render(parent=None, shards=shards, run_name="r", width=140)
+    shards = {0: {"state": "scanning", "phenos_done": 5, "phenos_total": 20, "elapsed_s": 4.0, "N": 100,
+                  "M": 200, "n_perm": 100, "device": "cuda:0"},
+              1: {"state": "scanning", "phenos_done": 4, "phenos_total": 20, "elapsed_s": 4.0, "N": 100,
+                  "M": 200, "n_perm": 100, "device": "cuda:1"}}
+    out = _render(parent = None, shards = shards, run_name = "r", width = 140)
     assert isinstance(out, Group)
 
 
 def test_render_single_pane_from_parent():
     """a single-GPU run (parent IS the worker, carries phenos_total) renders the one-pane Group"""
-    parent = {"state": "scanning", "phenos_done": 2, "phenos_total": 10, "elapsed_s": 3.0,
-              "N": 50, "M": 100, "n_perm": 10, "device": "cpu"}
-    out = _render(parent=parent, shards={}, run_name="r", width=100)
+    parent = {"state": "scanning", "phenos_done": 2, "phenos_total": 10, "elapsed_s": 3.0, "N": 50, "M": 100,
+              "n_perm": 10, "device": "cpu"}
+    out = _render(parent = parent, shards = {}, run_name = "r", width = 100)
     assert isinstance(out, Group)
 
 
 def test_render_dispatch_and_waiting():
     """the dispatch placeholder is a Panel, and a totally empty state is the waiting Text"""
-    out = _render(parent={"state": "dispatch", "n_gpu": 2}, shards={}, run_name="r", width=100)
+    out = _render(parent = {"state": "dispatch", "n_gpu": 2}, shards = {}, run_name = "r", width = 100)
     assert isinstance(out, Panel)
-    waiting = _render(parent=None, shards={}, run_name="r", width=100)
+    waiting = _render(parent = None, shards = {}, run_name = "r", width = 100)
     assert isinstance(waiting, Text)

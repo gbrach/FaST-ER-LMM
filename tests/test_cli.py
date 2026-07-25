@@ -16,7 +16,7 @@ from tests.conftest import GWAS_SCHEMA_COLS as GWAS_TSV_COLS, PHENO_NAMES
 
 def _run(*argv: str, check: bool = True) -> subprocess.CompletedProcess:
     """thin wrapper around subprocess.run that surfaces stderr on a failed exit so a broken cli is easy to read in the pytest report"""
-    r = subprocess.run(["fasterlmm", *argv], capture_output=True, text=True, check=False)
+    r = subprocess.run(["fasterlmm", *argv], capture_output = True, text = True, check = False)
     if check:
         assert r.returncode == 0, (
             f"fasterlmm {' '.join(argv)} exited {r.returncode}\n"
@@ -26,13 +26,8 @@ def _run(*argv: str, check: bool = True) -> subprocess.CompletedProcess:
 
 def _basic_gwas_args(geno: Path, pheno: Path, outdir: Path, n_perm: int = 10) -> list[str]:
     """canonical cpu-only invocation, every test that runs gwas starts from this list"""
-    return ["gwas",
-            "--geno", str(geno),
-            "--pheno", str(pheno),
-            "--outdir", str(outdir),
-            "--device", "cpu",
-            "--no-multi-gpu",
-            "--n-perm", str(n_perm)]
+    return ["gwas", "--geno", str(geno), "--pheno", str(pheno), "--outdir", str(outdir), "--device", "cpu",
+            "--no-multi-gpu", "--n-perm", str(n_perm)]
 
 
 def test_cli_help() -> None:
@@ -67,7 +62,7 @@ def test_gwas_basic_cpu_run(example_geno, example_pheno, outdir) -> None:
         tsv = outdir / pheno / "gwas.tsv"
         assert tsv.exists(), f"missing gwas.tsv for {pheno}"
     # spot-checking one pheno's table: schema is the documented 14 columns, 1500 variants, p in [0, 1]
-    df = pd.read_csv(outdir / PHENO_NAMES[0] / "gwas.tsv", sep="\t")
+    df = pd.read_csv(outdir / PHENO_NAMES[0] / "gwas.tsv", sep = "\t")
     assert list(df.columns) == GWAS_TSV_COLS
     assert len(df) == 1500
     assert df.PValue.between(0.0, 1.0).all()
@@ -76,7 +71,7 @@ def test_gwas_basic_cpu_run(example_geno, example_pheno, outdir) -> None:
 
 def test_gwas_threshold_perm_files(example_geno, example_pheno, outdir) -> None:
     """--n-perm 20 lands a perms.tsv (20 rows) + threshold.txt (one float in [0, 1]) per pheno"""
-    args = _basic_gwas_args(example_geno, example_pheno, outdir, n_perm=20)
+    args = _basic_gwas_args(example_geno, example_pheno, outdir, n_perm = 20)
     _run(*args)
     for pheno in PHENO_NAMES:
         sub = outdir / pheno
@@ -84,7 +79,7 @@ def test_gwas_threshold_perm_files(example_geno, example_pheno, outdir) -> None:
         thresh = sub / "threshold.txt"
         assert perms.exists() and thresh.exists()
         # perms.tsv carries one min-p row per perm (plus the header) so a 20-perm scan = 21 lines
-        perm_df = pd.read_csv(perms, sep="\t")
+        perm_df = pd.read_csv(perms, sep = "\t")
         assert len(perm_df) == 20
         # threshold.txt is one scientific-notation float, parseable, sitting in [0, 1]
         t = float(thresh.read_text().strip())
@@ -118,8 +113,7 @@ def test_gwas_bundle(example_geno, example_pheno, outdir) -> None:
 
 def test_gwas_no_per_pheno_dirs(example_geno, example_pheno, outdir) -> None:
     """--bundle --no-per-pheno-dirs keeps only the bundle, the per-pheno tree is skipped"""
-    args = _basic_gwas_args(example_geno, example_pheno, outdir) + [
-        "--bundle", "--no-per-pheno-dirs"]
+    args = _basic_gwas_args(example_geno, example_pheno, outdir) + ["--bundle", "--no-per-pheno-dirs"]
     _run(*args)
     assert (outdir / "gwas_bundle.parquet").is_dir()
     # none of the per-pheno dirs should have been written
@@ -140,8 +134,7 @@ def test_gwas_pheno_idx(example_geno, example_pheno, outdir) -> None:
 
 def test_gwas_pheno_range(example_geno, example_pheno, outdir) -> None:
     """--pheno-start 5 --pheno-end 10 covers exactly the 5 columns in [5, 10)"""
-    args = _basic_gwas_args(example_geno, example_pheno, outdir) + [
-        "--pheno-start", "5", "--pheno-end", "10"]
+    args = _basic_gwas_args(example_geno, example_pheno, outdir) + ["--pheno-start", "5", "--pheno-end", "10"]
     _run(*args)
     expected = set(PHENO_NAMES[5:10])
     pheno_dirs = {d.name for d in outdir.iterdir() if d.is_dir()}
@@ -174,8 +167,8 @@ def test_gwas_no_rint(example_geno, example_pheno, outdir, tmp_path) -> None:
     _run(*(_basic_gwas_args(example_geno, example_pheno, rint_dir) + ["--rint"]))
     _run(*(_basic_gwas_args(example_geno, example_pheno, outdir) + ["--no-rint"]))
     pheno = PHENO_NAMES[0]
-    p_rint = pd.read_csv(rint_dir / pheno / "gwas.tsv", sep="\t").PValue.iloc[0]
-    p_no = pd.read_csv(outdir / pheno / "gwas.tsv", sep="\t").PValue.iloc[0]
+    p_rint = pd.read_csv(rint_dir / pheno / "gwas.tsv", sep = "\t").PValue.iloc[0]
+    p_no = pd.read_csv(outdir / pheno / "gwas.tsv", sep = "\t").PValue.iloc[0]
     # rint reshapes the pheno before the scan, so the smallest p-value cant land identical
     assert p_rint != pytest.approx(p_no), (
         f"RINT vs no-RINT first-row PValue match exactly ({p_rint}), one of the two flags didnt take")
@@ -189,7 +182,7 @@ def test_gwas_no_loco(example_geno, example_pheno, outdir) -> None:
         assert (outdir / pheno / "gwas.tsv").exists()
     # the structural invariant: under single-K every variant in one pheno shares the same Nullh2 (one
     # null fit), under loco each chromosome refits so Nullh2 varies.  spot-checking one pheno is plenty
-    df = pd.read_csv(outdir / PHENO_NAMES[0] / "gwas.tsv", sep="\t")
+    df = pd.read_csv(outdir / PHENO_NAMES[0] / "gwas.tsv", sep = "\t")
     assert df.Nullh2.nunique() == 1, (
         f"single-K should leave Nullh2 constant within a pheno, got {df.Nullh2.nunique()} distinct values")
 
