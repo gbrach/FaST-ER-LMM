@@ -35,7 +35,17 @@ These are single-run timings recorded in [the figure script](generate_figures.py
 
 ## Install
 
-Requires **Python 3.10+**. Clone the repository and install into a virtual environment:
+Requires **Python 3.10+**. Install directly from GitHub inside a mamba environment:
+
+```bash
+mamba create -n fasterlmm python=3.11 pip git -y
+mamba activate fasterlmm
+python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
+```
+
+Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed. This installs the core `fasterlmm` command and LUX's pairwise commands, `gwas-epi` and `epi-watch`, together.
+
+For an editable installation and the bundled example data, clone the repository. You can use the mamba environment above or create a Python virtual environment:
 
 ```bash
 git clone https://github.com/gbrach/FaST-ER-LMM.git
@@ -45,13 +55,11 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-This installs the core `fasterlmm` command and LUX's pairwise commands, `gwas-epi` and `epi-watch`, together.
-
 For NVIDIA GPUs, your PyTorch installation must support CUDA. CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
 
 ## Quick start
 
-From the repository directory, run the bundled yeast example: **150 strains, 1,500 variants, and 20 phenotypes**.
+From the repository checkout above, run the bundled yeast example: **150 strains, 1,500 variants, and 20 phenotypes**. The example files require a checkout, even if you installed directly from GitHub.
 
 ```bash
 fasterlmm gwas \
