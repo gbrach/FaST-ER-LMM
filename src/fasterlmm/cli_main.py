@@ -1,10 +1,11 @@
 """
-Entry: dispatchs to the gwas, extreme, watch and concat subcommands
+Entry: dispatches to the gwas, extreme, watch, concat and plot subcommands
 Usage:
   fasterlmm gwas --geno ... --pheno ... --outdir ...
   fasterlmm extreme --geno ... --pheno ... --outdir ...
   fasterlmm watch <status.json>
   fasterlmm concat <outdir>
+  fasterlmm plot <outdir-or-parquet> --manhattan
 Buidling this as the new single entry so the dashed forms (fasterlmm-gwas, fasterlmm-watch) can go away
 """
 
@@ -22,6 +23,7 @@ subcommands:
   extreme -> big-N LOCO GWAS, streamed genotype + capped low-rank kinship (scales past gwas)
   watch -> live TUI for a running gwas job
   concat -> gather a slurm-array run's bundle shards into the gwas_bundle.parquet dataset
+  plot -> Manhattan PDFs from saved GWAS results or a Parquet bundle
 
 run `fasterlmm <subcommand> --help` for arguments
 """
@@ -48,10 +50,16 @@ def _concat() -> None:
     p.add_argument("outdir", help = "the gwas --outdir, the one holding .bundle_parts/")
     p.add_argument("--out", default = None,
                    help = "bundle dataset path to write (default " "<outdir>/gwas_bundle.parquet)")
+    from fasterlmm.plot import add_scan_arguments, validate_scan_arguments
+    add_scan_arguments(p)
     args = p.parse_args()
+    validate_scan_arguments(p, args)
     t0 = time.time()
     path = merge_bundle_parts(args.outdir, out_path = args.out)
     print(f"wrote {path} in {time.time() - t0:.0f}s")
+    if args.manhattan:
+        from fasterlmm.plot import plot_results
+        plot_results(path, chrom_sizes=args.chrom_sizes, label_top=args.label_top)
 
 
 # COMMAND LINE -------
@@ -79,6 +87,9 @@ def main() -> None:
         watch_main()
     elif sub == "concat":
         _concat()
+    elif sub == "plot":
+        from fasterlmm.plot import main as plot_main
+        plot_main()
     else:
         print(f"unknown subcommand: {sub}\n", file = sys.stderr)
         print(_BANNER, file = sys.stderr)

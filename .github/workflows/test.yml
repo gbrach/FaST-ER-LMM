@@ -27,7 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      # the test extra is pytest + pytest-cov only -- no fastlmm, no gpu.  the parity / fastlmm-external
+      # the test extra includes pytest, coverage, and PDF inspection -- no fastlmm, no gpu. the parity / fastlmm-external
       # / multi-gpu tests skip-gate cleanly (no golden fixture on a clean checkout, no cuda on the runner)
       - name: install package + test extra
         run: pip install -e ".[test]"

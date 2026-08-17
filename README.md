@@ -16,7 +16,7 @@ FaST-ER-LMM is a PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM)
 - **A path for larger cohorts.** The `extreme` command uses low-rank kinship and optional genotype streaming to reduce memory use.
 - **Results ready to use.** Per-phenotype TSVs, a combined Parquet dataset, and a live terminal dashboard.
 
-[Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets) · [LUX](#lux-research-extensions)
+[Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [Manhattan plots](#manhattan-plots) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets) · [LUX](#lux-research-extensions)
 
 <p align="center">
   <img src=".assets/gif_truth_1g_vs_2g.gif" width="780" alt="Live progress dashboard for scans on one and two GPUs">
@@ -111,6 +111,7 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 | `--no-loco` | Use a shared relatedness model across chromosomes (`gwas` only). |
 | `--phenos-per-job 32` | Set how many phenotypes are processed per batch; lower this to reduce batch memory use. |
 | `--bundle --no-per-pheno-dirs` | Write a combined Parquet dataset without individual phenotype folders. |
+| `--manhattan` | Generate Manhattan PDFs after scanning; with `--bundle`, write one multipage PDF. |
 | `--dry-run` | Load inputs and print the planned work before scanning (`gwas` only). |
 
 ## Results
@@ -150,6 +151,42 @@ print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
 Despite its suffix, `gwas_bundle.parquet` is a **directory of Parquet parts**. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
 
 Progress is stored in `status.json`, or `status.shard*.json` for sharded runs, and displayed by `fasterlmm watch`.
+
+## Manhattan plots
+
+Plotting is included in the normal installation. Add `--manhattan` to `gwas` or `extreme`:
+
+```bash
+fasterlmm gwas \
+  --geno data/example/example \
+  --pheno data/example/example_pheno.tsv \
+  --covar data/example/example_covar.tab \
+  --outdir runs/example/ \
+  --device cpu --bundle --manhattan
+```
+
+With `--bundle`, this writes **`runs/example/manhattan.pdf`**, one page per phenotype, alongside `gwas_bundle.parquet/`. It also works with `--no-per-pheno-dirs`. Without `--bundle`, each phenotype folder gets its own `manhattan.pdf`.
+
+The plots use alternating skyblue/navy chromosomes, a red dashed permutation threshold, and black triangles for significant variants. Up to ten of the strongest significant SNPs are labelled, with collision avoidance. Background points are rasterized at 300 dpi; text, axes, and highlighted hits stay vector-based.
+
+To plot saved results without rerunning GWAS:
+
+```bash
+fasterlmm plot runs/example/gwas_bundle.parquet --manhattan
+```
+
+The input can also be a run directory, a phenotype directory, a `gwas.tsv`, or a single Parquet file. Parquet data is read by phenotype using its row groups; PDFs are written outside the Parquet dataset. A missing threshold produces an unthresholded plot, explicitly marked as such.
+
+Select phenotypes or choose a PDF destination:
+
+```bash
+fasterlmm plot runs/example/ --manhattan \
+  --pheno YAL001C --pheno YAL002W --out runs/example/selected.pdf
+```
+
+Use `--label-top 20` to label more hits, or `--label-top 0` to turn labels off. Chromosome widths default to the largest observed position on each chromosome, in natural chromosome order. Supply `--chrom-sizes genome.sizes` for reference lengths and ordering: two whitespace-separated columns, chromosome and length, without a header. FASTA `.fai` indexes also work.
+
+For explicit `--shard X/N --bundle --manhattan` runs, each task writes `manhattan.shardX.pdf`. After all tasks finish, `fasterlmm concat runs/all/ --manhattan` gathers the data and creates the combined PDF. Automatic multi-GPU runs create the combined PDF after gathering their data.
 
 ## GPUs and clusters
 
@@ -227,6 +264,7 @@ For the complete command-line options:
 ```bash
 fasterlmm gwas --help
 fasterlmm extreme --help
+fasterlmm plot --help
 ```
 
 See the [code map](docs/HOW_IT_WORKS.md) for how loading, model fitting, permutations, and output fit together. Report problems through [GitHub issues](https://github.com/gbrach/FaST-ER-LMM/issues).
@@ -243,7 +281,8 @@ FaST-ER-LMM builds on FaST-LMM, described in [Lippert et al. (2011), *Nature Met
 - [x] `fasterlmm extreme`: streamed genotypes + capped low-rank K for big N, scaling past the dense `gwas` path.
 - [x] Portable, CPU-only pytest suite covering the package; FaST-LMM parity, GPU, and external checks skip when their requirements are unavailable.
 - [ ] Simulations for GxE and epistasis, to validate once implemented.
-- [ ] Manhattan and QQ plots, perhaps through a `fasterlmm plot` entry point that reads the Parquet bundle. Port the existing R code to Python.
+- [x] Manhattan PDFs in the existing R plot style, including multipage output and plotting from Parquet bundles with `fasterlmm plot`.
+- [ ] QQ plots.
 - [ ] Benchmark on H100 and H200, just for fun!
 - [x] MPS support: `--device mps` runs on Apple Silicon GPUs in float32.
 - [ ] Binary phenotypes?

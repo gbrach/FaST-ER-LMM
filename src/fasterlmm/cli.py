@@ -379,6 +379,10 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
     if bundle_writer is not None:
         bundle_writer.close()
 
+    if getattr(args, "manhattan", False):
+        from fasterlmm.plot import plot_scan
+        plot_scan(args, [data.pheno_names[p] for p in pheno_list], shard_i)
+
     print(f"{log_prefix}done: {len(pheno_list)} phenos in {time.time() - started_at:.1f}s",
           file = sys.stderr, flush = True)
     write_status(status_file,
@@ -451,7 +455,10 @@ def main() -> None:
                         help = "skip the per-pheno output tree, write only the bundle parquet (needs --bundle)")
     parser.add_argument("--dry-run", action = "store_true", help = "load inputs, print the planned work (N/M/P, "
                         "n_perm, shards, device), and exit before scanning")
+    from fasterlmm.plot import add_scan_arguments, validate_scan_arguments
+    add_scan_arguments(parser)
     args = parser.parse_args()
+    validate_scan_arguments(parser, args)
     if not args.per_pheno_dirs and not args.bundle:
         parser.error("--no-per-pheno-dirs needs --bundle, otherwise nothing gets written")
 
@@ -479,6 +486,9 @@ def main() -> None:
         if args.write_workers is None:
             args.write_workers = _default_write_workers(n_gpu)
         args_dict = vars(args).copy()
+        # Render the combined PDF once, after the parent gathers every shard.
+        if args.bundle:
+            args_dict["manhattan"] = False
         procs = [ctx.Process(target = _shard_entrypoint, args = (r, n_gpu, args_dict)) for r in range(n_gpu)]
         for p in procs:
             p.start()
@@ -530,6 +540,11 @@ def main() -> None:
                 # single-worker run streamed straight to the final bundle, nothing left to do
                 final["bundle"] = str(outdir / BUNDLE_FILENAME)
         write_status(str(Path(args.outdir) / "status.json"), final)
+
+        if auto_dispatch and args.bundle and args.manhattan and not args.dry_run:
+            from fasterlmm.plot import plot_results
+            plot_results(Path(args.outdir) / BUNDLE_FILENAME,
+                         chrom_sizes=args.chrom_sizes, label_top=args.label_top)
 
 
 if __name__ == "__main__":

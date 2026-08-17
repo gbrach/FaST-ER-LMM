@@ -53,6 +53,22 @@ multiple GPUs -> split the pheno list -> gather results automatically
 --shard jobs  -> split the pheno list -> all finished -> fasterlmm concat
 ```
 
+## Manhattan PDFs
+
+```text
+gwas / extreme --manhattan -> saved results -> plot.py
+  without --bundle -> <phenotype>/manhattan.pdf
+  with --bundle    -> manhattan.pdf, one phenotype per page
+
+fasterlmm plot -> existing TSVs or Parquet row groups -> plot.py
+fasterlmm concat --manhattan -> gathered bundle -> plot.py
+```
+
+Plotting is separate from fitting. Parquet metadata indexes phenotype row groups;
+only the columns needed for the current phenotype are read. The PDF uses the
+saved permutation threshold. Matplotlib is loaded only when rendering a plot.
+Background dots are rasterized; labels, axes, and significant hits remain vectors.
+
 ## LUX layer
 
 `lux/src/fasterlmm_lux/` ships in the same distribution as `src/fasterlmm/`, with

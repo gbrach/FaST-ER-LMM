@@ -26,15 +26,16 @@ dependencies = [
     "tqdm",
     "rich",
     "pyarrow",
+    "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
-# portable suite: pytest only, runs cpu-only on a fresh clone with no fastlmm / no gpu
-test = ["pytest>=7", "pytest-cov"]
+# Portable CPU suite; pypdf checks generated plots without external viewers.
+test = ["pytest>=7", "pytest-cov", "pypdf>=3"]
 # fastlmm is only needed to rebuild the parity golden + run the fastlmm-external low-rank check
 parity = ["fastlmm"]
-# matplotlib backs generate_figures.py, not a runtime dep of the package
-figures = ["matplotlib"]
+# Kept for existing figure-generation install commands; plotting now ships by default.
+figures = ["matplotlib>=3.7"]
 
 [project.scripts]
 fasterlmm = "fasterlmm.cli_main:main"

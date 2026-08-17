@@ -316,6 +316,10 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
     if bundle_writer is not None:
         bundle_writer.close()
 
+    if getattr(args, "manhattan", False):
+        from fasterlmm.plot import plot_scan
+        plot_scan(args, [pheno.names[p] for p in pheno_list], shard_i)
+
     print(f"{log_prefix}done: {len(pheno_list)} phenos in {time.time() - started_at:.1f}s",
           file = sys.stderr, flush = True)
     write_status(status_file,
@@ -388,7 +392,10 @@ def main() -> None:
     parser.add_argument("--no-per-pheno-dirs", dest = "per_pheno_dirs", action = "store_false",
                         default = True,
                         help = "skip the per-pheno output tree, write only the bundle (needs --bundle)")
+    from fasterlmm.plot import add_scan_arguments, validate_scan_arguments
+    add_scan_arguments(parser)
     args = parser.parse_args()
+    validate_scan_arguments(parser, args)
     if not args.per_pheno_dirs and not args.bundle:
         parser.error("--no-per-pheno-dirs needs --bundle, otherwise nothing gets written")
 
@@ -414,6 +421,8 @@ def main() -> None:
         if args.write_workers is None:
             args.write_workers = _default_write_workers(n_gpu)
         args_dict = vars(args).copy()
+        if args.bundle:
+            args_dict["manhattan"] = False
         procs = [ctx.Process(target = _shard_entrypoint, args = (r, n_gpu, args_dict)) for r in range(n_gpu)]
         for p in procs:
             p.start()
@@ -455,6 +464,11 @@ def main() -> None:
         except (OSError, ValueError):
             pass
         write_status(str(status_path), {**existing, **final})
+
+        if auto_dispatch and args.bundle and args.manhattan:
+            from fasterlmm.plot import plot_results
+            plot_results(Path(args.outdir) / BUNDLE_FILENAME,
+                         chrom_sizes=args.chrom_sizes, label_top=args.label_top)
 
 
 if __name__ == "__main__":

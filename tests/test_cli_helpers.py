@@ -58,6 +58,7 @@ def test_default_write_workers_shrinks_with_more_procs() -> None:
 
 # _RESOURCE_STATS  -------
 
+@pytest.mark.skipif(sys.platform != "linux", reason="RSS snapshot uses Linux /proc/self/status")
 def test_resource_stats_cpu_has_rss() -> None:
     """on linux the cpu snapshot carries current + peak host rss, both finite and non-negative"""
     stats = _resource_stats("cpu")
@@ -77,8 +78,8 @@ def test_resource_stats_cpu_no_gpu_keys() -> None:
 
 # UMBRELLA ENTRY (SUBPROCESS)  -------
 
-# the four subcommands the banner advertises, every banner print has to name all of them
-_SUBCOMMANDS = ("gwas", "extreme", "watch", "concat")
+# Every banner print has to name all advertised subcommands.
+_SUBCOMMANDS = ("gwas", "extreme", "watch", "concat", "plot")
 
 
 def _run_module(*argv: str) -> subprocess.CompletedProcess:
