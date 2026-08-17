@@ -1,0 +1,2 @@
+include lux/README.md lux/DEVELOPMENT.md
+recursive-include lux/tests *.py *.npz

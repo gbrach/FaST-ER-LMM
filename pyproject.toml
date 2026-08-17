@@ -38,19 +38,27 @@ figures = ["matplotlib"]
 
 [project.scripts]
 fasterlmm = "fasterlmm.cli_main:main"
+gwas-epi = "fasterlmm_lux.epi.cli:main"
+epi-watch = "fasterlmm_lux.epi.watch:main"
 
 [project.urls]
 Repository = "https://github.com/gbrach/FaST-ER-LMM"
 Issues = "https://github.com/gbrach/FaST-ER-LMM/issues"
 
+[tool.setuptools.package-dir]
+fasterlmm = "src/fasterlmm"
+fasterlmm_lux = "lux/src/fasterlmm_lux"
+
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "lux/src"]
+include = ["fasterlmm", "fasterlmm.*", "fasterlmm_lux", "fasterlmm_lux.*"]
+namespaces = false
 
 [tool.setuptools.dynamic]
 version = { attr = "fasterlmm.__version__" }
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "lux/tests"]
 addopts = "-ra"
 filterwarnings = [
     "ignore::DeprecationWarning",

@@ -52,3 +52,22 @@ workers -> progress.py -> status files -> watch.py -> dashboard
 multiple GPUs -> split the pheno list -> gather results automatically
 --shard jobs  -> split the pheno list -> all finished -> fasterlmm concat
 ```
+
+## LUX layer
+
+`lux/src/fasterlmm_lux/` ships in the same distribution as `src/fasterlmm/`, with
+its own namespace and commands. The dependency goes from LUX to the core;
+no `fasterlmm` module imports LUX.
+
+```text
+fasterlmm gwas -> per-phenotype gwas.tsv
+                         |
+gwas-epi -> epi.marginals -> epi.scan -> epi.writer
+                               |
+                       fasterlmm.core + Lux's batched pair kernel
+
+epi-watch <- Lux's progress snapshots
+```
+
+The pairwise scan uses LDCO kinship, excluding both SNP chromosomes. GxE and
+orchestration are not part of this package. See the [LUX guide](../lux/README.md).
