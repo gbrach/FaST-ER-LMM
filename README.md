@@ -49,12 +49,16 @@ For NVIDIA GPUs, your PyTorch installation must support CUDA. CPU runs work with
 
 ## Quick start
 
-After installing, clone the repository for the bundled yeast example: **150 strains, 1,500 variants, and 20 phenotypes**. Run it on your NVIDIA GPU:
+FaST-ER-LMM is already installed by the commands above. Clone the repository to get the example data; no second installation is needed:
 
 ```bash
 git clone https://github.com/gbrach/FaST-ER-LMM.git
 cd FaST-ER-LMM
+```
 
+Run the bundled yeast example (**150 strains, 1,500 variants, and 20 phenotypes**) on your NVIDIA GPU:
+
+```bash
 fasterlmm gwas \
   --geno data/example/example \
   --pheno data/example/example_pheno.tsv \
