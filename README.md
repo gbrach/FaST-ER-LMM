@@ -16,7 +16,7 @@ FaST-ER-LMM is a PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM)
 - **A path for larger cohorts.** The `extreme` command uses low-rank kinship and optional genotype streaming to reduce memory use.
 - **Results ready to use.** Per-phenotype TSVs, a combined Parquet dataset, and a live terminal dashboard.
 
-[Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [Manhattan plots](#manhattan-plots) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets) · [LUX](#lux-research-extensions)
+[Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [Manhattan plots](#manhattan-plots) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets) · [LUX](#lux)
 
 <p align="center">
   <img src=".assets/gif_truth_1g_vs_2g.gif" width="780" alt="Live progress dashboard for scans on one and two GPUs">
@@ -45,33 +45,26 @@ python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
 
 Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed. This installs the core `fasterlmm` command and LUX's pairwise commands, `gwas-epi` and `epi-watch`, together.
 
-For an editable installation and the bundled example data, clone the repository. You can use the mamba environment above or create a Python virtual environment:
-
-```bash
-git clone https://github.com/gbrach/FaST-ER-LMM.git
-cd FaST-ER-LMM
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
 For NVIDIA GPUs, your PyTorch installation must support CUDA. CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
 
 ## Quick start
 
-From the repository checkout above, run the bundled yeast example: **150 strains, 1,500 variants, and 20 phenotypes**. The example files require a checkout, even if you installed directly from GitHub.
+After installing, clone the repository for the bundled yeast example: **150 strains, 1,500 variants, and 20 phenotypes**. Run it on your NVIDIA GPU:
 
 ```bash
+git clone https://github.com/gbrach/FaST-ER-LMM.git
+cd FaST-ER-LMM
+
 fasterlmm gwas \
   --geno data/example/example \
   --pheno data/example/example_pheno.tsv \
   --covar data/example/example_covar.tab \
   --outdir runs/example/ \
-  --device cpu \
-  --bundle
+  --device cuda \
+  --bundle --manhattan
 ```
 
-This scans every phenotype with LOCO, applies a rank-based inverse normal transform (RINT), and runs 100 permutations per phenotype. Results are written to `runs/example/`.
+This scans every phenotype with LOCO, applies a rank-based inverse normal transform (RINT), and runs 100 permutations per phenotype. Results are written to `runs/example/`, with one PDF per phenotype in `runs/example/manhattan/`.
 
 While the scan runs, open a second terminal in the same environment to follow progress:
 
@@ -79,7 +72,7 @@ While the scan runs, open a second terminal in the same environment to follow pr
 fasterlmm watch runs/example/
 ```
 
-To run your own data, replace the three input paths and choose an output directory. Omit `--covar` if you have no covariates, or change `--device cpu` to `--device cuda` for NVIDIA GPUs.
+To run your own data, replace the three input paths and choose an output directory. Omit `--covar` if you have no covariates. Use `--device cpu` for CPU runs or `--device mps` on Apple Silicon.
 
 ## Input formats
 
@@ -111,12 +104,12 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 | `--no-loco` | Use a shared relatedness model across chromosomes (`gwas` only). |
 | `--phenos-per-job 32` | Set how many phenotypes are processed per batch; lower this to reduce batch memory use. |
 | `--bundle --no-per-pheno-dirs` | Write a combined Parquet dataset without individual phenotype folders. |
-| `--manhattan` | Generate Manhattan PDFs after scanning; with `--bundle`, write one multipage PDF. |
+| `--manhattan` | Generate one Manhattan PDF per phenotype, including when results use `--bundle`. |
 | `--dry-run` | Load inputs and print the planned work before scanning (`gwas` only). |
 
 ## Results
 
-With `--bundle`, an output directory contains:
+With `--bundle --manhattan`, an output directory contains:
 
 ```text
 runs/example/
@@ -125,6 +118,9 @@ runs/example/
 │   ├── perms.tsv
 │   └── threshold.txt
 ├── gwas_bundle.parquet/
+│   └── gwas-results-part-00000.parquet
+├── manhattan/
+│   └── <phenotype>.pdf
 └── status.json
 ```
 
@@ -150,6 +146,8 @@ print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
 
 Despite its suffix, `gwas_bundle.parquet` is a **directory of Parquet parts**. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
 
+Parts are named `gwas-results-part-00000.parquet`, `gwas-results-part-00001.parquet`, and so on. Gathered GPU or cluster shards add a prefix, such as `shard0-gwas-results-part-00000.parquet`. Each file can contain several phenotypes; read the whole directory to load all results.
+
 Progress is stored in `status.json`, or `status.shard*.json` for sharded runs, and displayed by `fasterlmm watch`.
 
 ## Manhattan plots
@@ -162,10 +160,10 @@ fasterlmm gwas \
   --pheno data/example/example_pheno.tsv \
   --covar data/example/example_covar.tab \
   --outdir runs/example/ \
-  --device cpu --bundle --manhattan
+  --device cuda --bundle --manhattan
 ```
 
-With `--bundle`, this writes **`runs/example/manhattan.pdf`**, one page per phenotype, alongside `gwas_bundle.parquet/`. It also works with `--no-per-pheno-dirs`. Without `--bundle`, each phenotype folder gets its own `manhattan.pdf`.
+With `--bundle`, this writes **one PDF per phenotype** in `runs/example/manhattan/`, alongside `gwas_bundle.parquet/`. It also works with `--no-per-pheno-dirs`. Without `--bundle`, each phenotype folder gets its own `manhattan.pdf`.
 
 The plots use alternating skyblue/navy chromosomes, a red dashed permutation threshold, and black triangles for significant variants. Up to ten of the strongest significant SNPs are labelled, with collision avoidance. Background points are rasterized at 300 dpi; text, axes, and highlighted hits stay vector-based.
 
@@ -177,7 +175,7 @@ fasterlmm plot runs/example/gwas_bundle.parquet --manhattan
 
 The input can also be a run directory, a phenotype directory, a `gwas.tsv`, or a single Parquet file. Parquet data is read by phenotype using its row groups; PDFs are written outside the Parquet dataset. A missing threshold produces an unthresholded plot, explicitly marked as such.
 
-Select phenotypes or choose a PDF destination:
+Select phenotypes with `--pheno`. To combine selected phenotypes into a single multipage PDF, explicitly pass `--out`:
 
 ```bash
 fasterlmm plot runs/example/ --manhattan \
@@ -186,7 +184,7 @@ fasterlmm plot runs/example/ --manhattan \
 
 Use `--label-top 20` to label more hits, or `--label-top 0` to turn labels off. Chromosome widths default to the largest observed position on each chromosome, in natural chromosome order. Supply `--chrom-sizes genome.sizes` for reference lengths and ordering: two whitespace-separated columns, chromosome and length, without a header. FASTA `.fai` indexes also work.
 
-For explicit `--shard X/N --bundle --manhattan` runs, each task writes `manhattan.shardX.pdf`. After all tasks finish, `fasterlmm concat runs/all/ --manhattan` gathers the data and creates the combined PDF. Automatic multi-GPU runs create the combined PDF after gathering their data.
+For explicit `--shard X/N --bundle --manhattan` runs, each task writes its phenotypes' PDFs to the shared `manhattan/` directory. After all tasks finish, `fasterlmm concat runs/all/ --manhattan` gathers the data and generates the individual PDFs. Automatic multi-GPU runs generate one PDF per phenotype after gathering their data.
 
 ## GPUs and clusters
 
@@ -244,7 +242,7 @@ fasterlmm extreme \
 
 `extreme` always uses LOCO and supports the same phenotype selection, permutation, bundle, and sharding options as `gwas`. Using fewer kinship markers changes the relatedness estimate; it does not reduce the set of variants tested for association.
 
-## LUX: research extensions
+## LUX
 
 **LUX — LUdicrously eXtra** builds on the FaST-ER-LMM core through a separate Python namespace in [`lux/`](lux/README.md). Both are included in the same install. The core stays focused on the FaST-LMM reimplementation; LUX has its own code and commands, and the core never imports it.
 

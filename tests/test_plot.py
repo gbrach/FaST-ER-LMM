@@ -82,16 +82,32 @@ def test_inconsistent_thresholds_are_rejected():
         prepare_data(data)
 
 
-def test_parquet_dataset_writes_one_page_per_pheno(tmp_path):
+def test_parquet_dataset_writes_one_pdf_per_pheno(tmp_path):
     source = write_bundle(tmp_path / "gwas_bundle.parquet")
     outputs = plot_results(source)
-    assert outputs == [tmp_path / "manhattan.pdf"]
-    pages = PdfReader(outputs[0]).pages
-    assert len(pages) == 2
-    assert "trait_a" in pages[0].extract_text()
-    assert "trait_b" in pages[1].extract_text()
-    assert "s2" in pages[0].extract_text()
+    assert outputs == [tmp_path / "manhattan" / f"{name}.pdf" for name in ("trait_a", "trait_b")]
+    for name, output in zip(("trait_a", "trait_b"), outputs):
+        pages = PdfReader(output).pages
+        assert len(pages) == 1
+        assert name in pages[0].extract_text()
+        assert "s2" in pages[0].extract_text()
+    assert not (tmp_path / "manhattan.pdf").exists()
     assert not list(source.glob("*.pdf"))
+
+
+def test_parquet_explicit_output_combines_selected_phenotypes(tmp_path):
+    source = write_bundle(tmp_path / "gwas_bundle.parquet", names=("a", "b", "c"))
+    output = tmp_path / "selected.pdf"
+    run_cli("plot", source, "--manhattan", "--pheno", "a", "--pheno", "c", "--out", output)
+    assert len(PdfReader(output).pages) == 2
+    assert not (tmp_path / "manhattan").exists()
+
+
+def test_phenotype_path_characters_stay_in_plot_directory(tmp_path):
+    source = write_bundle(tmp_path / "gwas_bundle.parquet", names=("../trait", "a/b", "a%2Fb"))
+    outputs = plot_results(source)
+    assert len(set(outputs)) == 3
+    assert all(path.parent == tmp_path / "manhattan" and path.is_file() for path in outputs)
 
 
 def test_mixed_row_groups_and_split_pheno_are_gathered(tmp_path):
@@ -128,7 +144,7 @@ def test_failures_preserve_existing_pdf(tmp_path):
     bad["threshold"] = -1.0
     pq.write_table(pa.Table.from_pandas(bad, preserve_index=False), source / "part1.parquet")
     with pytest.raises(ValueError, match="threshold"):
-        plot_results(source)
+        plot_results(source, out=destination)
     assert destination.read_bytes() == b"previous output"
     assert not list(tmp_path.glob(".manhattan-*.pdf"))
 
@@ -142,10 +158,11 @@ def test_reject_pdf_inside_parquet_dataset(tmp_path):
 def test_plot_cli_accepts_run_dir_and_selection(tmp_path):
     write_bundle(tmp_path / "gwas_bundle.parquet")
     run_cli("plot", tmp_path, "--manhattan", "--pheno", "trait_b", "--label-top", "0")
-    pdf = PdfReader(tmp_path / "manhattan.pdf")
+    pdf = PdfReader(tmp_path / "manhattan" / "trait_b.pdf")
     assert len(pdf.pages) == 1
     assert "trait_b" in pdf.pages[0].extract_text()
     assert "s2" not in pdf.pages[0].extract_text()
+    assert not (tmp_path / "manhattan" / "trait_a.pdf").exists()
 
 
 def scan_args(example_geno, example_pheno, out):
@@ -154,11 +171,13 @@ def scan_args(example_geno, example_pheno, out):
 
 
 @pytest.mark.parametrize("command", ["gwas", "extreme"])
-def test_scan_bundle_only_writes_multipage_pdf(command, example_geno, example_pheno, tmp_path):
+def test_scan_bundle_only_writes_individual_pdfs(command, example_geno, example_pheno, tmp_path):
     extra = ["--grm-k", "20", "--float64"] if command == "extreme" else []
     run_cli(command, *scan_args(example_geno, example_pheno, tmp_path), *extra,
             "--bundle", "--no-per-pheno-dirs", "--manhattan")
-    assert len(PdfReader(tmp_path / "manhattan.pdf").pages) == 2
+    for name in ("YAL001C", "YAL002W"):
+        assert len(PdfReader(tmp_path / "manhattan" / f"{name}.pdf").pages) == 1
+    assert not (tmp_path / "manhattan.pdf").exists()
     assert not (tmp_path / "YAL001C").exists()
     assert (tmp_path / "gwas_bundle.parquet").is_dir()
 
@@ -176,9 +195,15 @@ def test_shard_pdfs_and_concat(example_geno, example_pheno, tmp_path):
     for shard in (0, 1):
         run_cli("gwas", *scan_args(example_geno, example_pheno, tmp_path), "--bundle",
                 "--no-per-pheno-dirs", "--manhattan", "--shard", f"{shard}/2")
-        assert len(PdfReader(tmp_path / f"manhattan.shard{shard}.pdf").pages) == 1
+        name = ("YAL001C", "YAL002W")[shard]
+        output = tmp_path / "manhattan" / f"{name}.pdf"
+        assert len(PdfReader(output).pages) == 1
+    for output in (tmp_path / "manhattan").glob("*.pdf"):
+        output.unlink()  # Ensure concat recreates both individual plots.
     run_cli("concat", tmp_path, "--manhattan")
-    assert len(PdfReader(tmp_path / "manhattan.pdf").pages) == 2
+    assert len(list((tmp_path / "manhattan").glob("*.pdf"))) == 2
+    assert not list((tmp_path / ".bundle_parts").rglob("*.pdf"))
+    assert not (tmp_path / "manhattan.pdf").exists()
 
 
 def test_dry_run_does_not_make_plots(example_geno, example_pheno, tmp_path):
@@ -218,5 +243,7 @@ def test_auto_gpu_parent_plots_after_merge(monkeypatch, tmp_path, module_name, w
     monkeypatch.setattr(sys, "argv", ["fasterlmm", "--geno", "unused", "--pheno", "unused",
                                       "--outdir", str(tmp_path), "--bundle", "--manhattan"])
     module.main()
-    assert len(PdfReader(tmp_path / "manhattan.pdf").pages) == 2
+    for name in ("trait_0", "trait_1"):
+        assert len(PdfReader(tmp_path / "manhattan" / f"{name}.pdf").pages) == 1
+    assert not (tmp_path / "manhattan.pdf").exists()
     assert not list(tmp_path.glob("manhattan.shard*.pdf"))

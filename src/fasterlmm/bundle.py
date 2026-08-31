@@ -80,7 +80,7 @@ class BundleWriter:
             # first append on this thread -- open its own part under the lock.  the lock guards only
             # this one-off setup, the counter and the writers list, all tiny next to write_table
             with self._lock:
-                writer = pq.ParquetWriter(self._tmp / f"part{self._next_part}.parquet", table.schema,
+                writer = pq.ParquetWriter(self._tmp / f"gwas-results-part-{self._next_part:05d}.parquet", table.schema,
                                           compression = _PARQUET_COMPRESSION)
                 self._next_part += 1
                 self._writers.append(writer)
@@ -185,7 +185,7 @@ def merge_bundle_parts(outdir: Path | str, out_path: Path | str | None = None) -
     parts_dir = outdir / BUNDLE_PARTS_DIRNAME
     out_path = Path(out_path) if out_path else outdir / BUNDLE_FILENAME
     # each shard committed a shard{i}.parquet directory, collect every part inside it, shard-tagged
-    # so the flattened names stay unique once part0.parquet from two shards land side by side
+    # so the flattened names stay unique when the same part number arrives from two shards
     shard_dirs = sorted(d for d in parts_dir.glob("shard*.parquet") if d.is_dir())
     if not shard_dirs:
         raise FileNotFoundError(f"no .bundle_parts shard dirs under {outdir}")
@@ -211,7 +211,7 @@ def merge_bundle_parts(outdir: Path | str, out_path: Path | str | None = None) -
         tmp_dir.unlink()
     tmp_dir.mkdir(parents = True)
     for shard_tag, part in tagged_parts:
-        part.replace(tmp_dir / f"{shard_tag}_{part.name}")
+        part.replace(tmp_dir / f"{shard_tag}-{part.name}")
     # a stale bundle from an earlier run, file or directory, would block the rename of the new one
     if out_path.is_dir():
         shutil.rmtree(out_path)

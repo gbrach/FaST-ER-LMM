@@ -157,7 +157,7 @@ def test_extreme_bundle(example_geno, example_pheno, outdir) -> None:
     """--bundle on a one-pheno run drops a gwas_bundle.parquet dir pandas can read as one table"""
     _run_extreme(example_geno, example_pheno, outdir, "--pheno-idx", "0", "--bundle")
     bundle = outdir / "gwas_bundle.parquet"
-    assert bundle.is_dir(), "bundle should be a directory of part*.parquet files"
+    assert bundle.is_dir(), "bundle should be a directory of Parquet result parts"
     df = pd.read_parquet(str(bundle))
     # one pheno x 1500 variants, the 14 gwas cols plus bundle's threshold + significant
     assert len(df) == 1500

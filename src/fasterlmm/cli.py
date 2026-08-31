@@ -486,7 +486,7 @@ def main() -> None:
         if args.write_workers is None:
             args.write_workers = _default_write_workers(n_gpu)
         args_dict = vars(args).copy()
-        # Render the combined PDF once, after the parent gathers every shard.
+        # Render phenotype PDFs once, after the parent gathers every shard.
         if args.bundle:
             args_dict["manhattan"] = False
         procs = [ctx.Process(target = _shard_entrypoint, args = (r, n_gpu, args_dict)) for r in range(n_gpu)]

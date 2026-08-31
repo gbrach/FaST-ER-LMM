@@ -58,10 +58,11 @@ multiple GPUs -> split the pheno list -> gather results automatically
 ```text
 gwas / extreme --manhattan -> saved results -> plot.py
   without --bundle -> <phenotype>/manhattan.pdf
-  with --bundle    -> manhattan.pdf, one phenotype per page
+  with --bundle    -> manhattan/<phenotype>.pdf
 
 fasterlmm plot -> existing TSVs or Parquet row groups -> plot.py
 fasterlmm concat --manhattan -> gathered bundle -> plot.py
+fasterlmm plot --out combined.pdf -> one multipage PDF on request
 ```
 
 Plotting is separate from fitting. Parquet metadata indexes phenotype row groups;

@@ -11,6 +11,7 @@ import re
 import tempfile
 import textwrap
 import warnings
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -126,7 +127,9 @@ class Results:
         return frame
 
     def default_output(self, name: str | None = None) -> Path:
-        if name is not None and not self.bundled:
+        if name is not None:
+            if self.bundled:
+                return self.source.parent / "manhattan" / f"{quote(name, safe='')}.pdf"
             return self.tsvs[name].parent / "manhattan.pdf"
         return (self.source.parent if self.bundled or self.source.is_file() else self.source) / "manhattan.pdf"
 
@@ -265,8 +268,13 @@ def _pdf_output(path):
         Path(temporary).unlink(missing_ok=True)
 
 
-def plot_results(source, *, out=None, bundle=False, phenotypes=None, chrom_sizes=None, label_top=10):
-    """Render saved results. An explicit output path always creates one PDF."""
+def plot_results(source, *, out=None, bundle=False, phenotypes=None, chrom_sizes=None, label_top=10,
+                 output_dir=None):
+    """Render one PDF per phenotype; out or bundle explicitly combines pages.
+
+    output_dir lets scan shards put their individual PDFs in the run's shared
+    Manhattan directory, outside the temporary Parquet staging directory.
+    """
     if label_top < 0:
         raise ValueError("--label-top must be >= 0")
     results = Results(source)
@@ -279,7 +287,9 @@ def plot_results(source, *, out=None, bundle=False, phenotypes=None, chrom_sizes
     sizes = read_chrom_sizes(chrom_sizes)
     outputs = []
     groups = [(Path(out) if out else results.default_output(), names)] if (
-        out is not None or bundle or results.bundled) else [(results.default_output(n), [n]) for n in names]
+        out is not None or bundle) else [
+            (Path(output_dir) / f"{quote(n, safe='')}.pdf" if output_dir is not None
+             else results.default_output(n), [n]) for n in names]
     for path, page_names in groups:
         if results.bundled and results.source.is_dir() and path.resolve().is_relative_to(results.source.resolve()):
             raise ValueError("write the PDF alongside the Parquet dataset, outside its directory")
@@ -294,7 +304,7 @@ def plot_results(source, *, out=None, bundle=False, phenotypes=None, chrom_sizes
 
 
 def add_scan_arguments(parser):
-    parser.add_argument("--manhattan", action="store_true", help="write Manhattan PDFs after scanning; --bundle makes one multipage PDF")
+    parser.add_argument("--manhattan", action="store_true", help="write one Manhattan PDF per phenotype")
     parser.add_argument("--chrom-sizes", help="chromosome lengths: whitespace-delimited chromosome/length columns, no header (or .fai)")
     parser.add_argument("--label-top", type=int, default=10, help="maximum significant SNP labels per plot (0 disables labels)")
 
@@ -315,8 +325,8 @@ def plot_scan(args, names, shard_i=None):
     root = Path(args.outdir)
     if args.bundle:
         source = root / BUNDLE_FILENAME if shard_i is None else root / BUNDLE_PARTS_DIRNAME / f"shard{shard_i}.parquet"
-        out = root / ("manhattan.pdf" if shard_i is None else f"manhattan.shard{shard_i}.pdf")
-        plot_results(source, out=out, phenotypes=names, chrom_sizes=args.chrom_sizes, label_top=args.label_top)
+        plot_results(source, output_dir=root / "manhattan", phenotypes=names,
+                     chrom_sizes=args.chrom_sizes, label_top=args.label_top)
     else:
         # Read only this run's phenotype folders, even if an older bundle exists.
         for name in names:
@@ -327,8 +337,8 @@ def main():
     parser = argparse.ArgumentParser(prog="fasterlmm plot", description="Plot saved GWAS TSVs or a Parquet bundle without rerunning the scan")
     parser.add_argument("input", help="run directory, phenotype directory, gwas.tsv, or Parquet file/dataset")
     add_scan_arguments(parser)
-    parser.add_argument("--out", help="one output PDF (default: manhattan.pdf alongside the input)")
-    parser.add_argument("--bundle", action="store_true", help="combine per-phenotype TSV plots into one PDF")
+    parser.add_argument("--out", help="combine selected phenotypes into this PDF (default: one PDF per phenotype)")
+    parser.add_argument("--bundle", action="store_true", help="combine selected phenotypes into one manhattan.pdf")
     parser.add_argument("--pheno", action="append", help="phenotype name to plot; repeat to select several")
     args = parser.parse_args()
     if not args.manhattan:

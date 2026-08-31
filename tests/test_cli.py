@@ -100,8 +100,8 @@ def test_gwas_bundle(example_geno, example_pheno, outdir) -> None:
     args = _basic_gwas_args(example_geno, example_pheno, outdir) + ["--bundle"]
     _run(*args)
     bundle = outdir / "gwas_bundle.parquet"
-    assert bundle.is_dir(), "bundle should be a directory of part*.parquet files"
-    parts = list(bundle.glob("part*.parquet"))
+    assert bundle.is_dir(), "bundle should be a directory of Parquet result parts"
+    parts = list(bundle.glob("gwas-results-part-*.parquet"))
     assert parts, "bundle has no parts"
     df = pd.read_parquet(str(bundle))
     # 20 phenos x 1500 variants = 30000 rows, 16 columns (the 14 from gwas.tsv plus threshold + significant)

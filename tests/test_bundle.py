@@ -77,8 +77,8 @@ def test_writer_append_close_roundtrips(outdir):
 
     assert final == path
     assert final.is_dir()
-    parts = sorted(final.glob("part*.parquet"))
-    assert parts, "close should leave at least one part*.parquet behind"
+    parts = sorted(final.glob("*.parquet"))
+    assert [part.name for part in parts] == ["gwas-results-part-00000.parquet"]
 
     df = pd.read_parquet(final)
     assert len(df) == 12  # 5 + 7
@@ -97,7 +97,7 @@ def test_writer_decodes_dictionary_pheno(outdir):
     final = w.close()
 
     import pyarrow.parquet as pq
-    schema = pq.read_schema(sorted(final.glob("part*.parquet"))[0])
+    schema = pq.read_schema(sorted(final.glob("*.parquet"))[0])
     # the on-disk Pheno type is a flat string, not dictionary-encoded, so it matches the tsv route
     pheno_type = schema.field("Pheno").type
     assert pa.types.is_string(pheno_type)
@@ -183,10 +183,21 @@ def test_merge_bundle_parts_gathers_shards(outdir):
     assert out == outdir / BUNDLE_FILENAME
     assert out.is_dir()
     assert not parts_dir.exists()  # .bundle_parts dropped on the way out
+    assert sorted(p.name for p in out.glob("*.parquet")) == [
+        "shard0-gwas-results-part-00000.parquet", "shard1-gwas-results-part-00000.parquet"]
 
     df = pd.read_parquet(out)
     assert len(df) == 15  # (2 * 5) + (1 * 5)
     assert set(df["Pheno"].unique()) == {"s0_phA", "s0_phB", "s1_phC"}
+
+
+def test_merge_accepts_legacy_part_names(outdir):
+    parts_dir = outdir / BUNDLE_PARTS_DIRNAME
+    shard = _write_shard(parts_dir, 0, ["legacy"])
+    next(shard.glob("*.parquet")).rename(shard / "part0.parquet")
+    _write_shard(parts_dir, 1, ["current"])
+    out = merge_bundle_parts(outdir)
+    assert set(pd.read_parquet(out).Pheno) == {"legacy", "current"}
 
 
 def test_merge_bundle_parts_custom_outpath(outdir):
