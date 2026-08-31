@@ -92,7 +92,7 @@ By default, each phenotype also gets `<phenotype>.tier2.first_assoc.txt.gz`. Add
 
 ```text
 FaST-ER-LMM core                 LUX
-src/fasterlmm/          <──────   lux/src/fasterlmm_lux/
+fasterlmm/              <──────   lux/src/fasterlmm_lux/
   LMM fitting, input loading      pairwise scan, pair kernel
   gwas, extreme, watch            pair output, pair dashboard
 ```

@@ -1,6 +1,6 @@
 # code map
 
-`src/fasterlmm/`
+`fasterlmm/`
 
 ## gwas
 
@@ -72,7 +72,7 @@ Background dots are rasterized; labels, axes, and significant hits remain vector
 
 ## LUX layer
 
-`lux/src/fasterlmm_lux/` ships in the same distribution as `src/fasterlmm/`, with
+`lux/src/fasterlmm_lux/` ships in the same distribution as `fasterlmm/`, with
 its own namespace and commands. The dependency goes from LUX to the core;
 no `fasterlmm` module imports LUX.
 

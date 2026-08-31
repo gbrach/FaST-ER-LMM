@@ -1,5 +1,5 @@
 """
-unit cover for the watch TUI (src/fasterlmm/watch.py)
+unit cover for the watch TUI (fasterlmm/watch.py)
 all of it is cpu-testable with synthetic status dicts -- the formatters, the per-shard aggregation, the
 panel builders and the single-vs-multi render branch -- so nothing here spins up a rich Live or a subprocess.
 the formatters get value checks, the panels get rendered to plain text and probed for the key fields

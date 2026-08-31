@@ -5,6 +5,7 @@
 - Write one Manhattan PDF per phenotype by default, including Parquet bundles, bundle-only scans, and sharded runs. Bundled results put PDFs in `manhattan/<phenotype>.pdf` beside the dataset; `fasterlmm plot --out combined.pdf` still combines selected phenotypes explicitly.
 - Give mixed-phenotype Parquet parts descriptive names (`gwas-results-part-00000.parquet`), prefixed by shard when gathered. Existing bundles remain readable.
 - Simplify the README installation instructions, use CUDA and Manhattan plots in the quick start, and shorten the LUX section heading.
+- Move the core Python package to top-level `fasterlmm/`; keep imports, commands, and the separate Lux package unchanged.
 
 ## 1.3.0
 

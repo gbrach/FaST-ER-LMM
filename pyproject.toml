@@ -47,11 +47,11 @@ Repository = "https://github.com/gbrach/FaST-ER-LMM"
 Issues = "https://github.com/gbrach/FaST-ER-LMM/issues"
 
 [tool.setuptools.package-dir]
-fasterlmm = "src/fasterlmm"
+fasterlmm = "fasterlmm"
 fasterlmm_lux = "lux/src/fasterlmm_lux"
 
 [tool.setuptools.packages.find]
-where = ["src", "lux/src"]
+where = [".", "lux/src"]
 include = ["fasterlmm", "fasterlmm.*", "fasterlmm_lux", "fasterlmm_lux.*"]
 namespaces = false
 
