@@ -115,10 +115,13 @@ class AlignedDataset:
     pos: np.ndarray
     snp_id: list[str]
     pheno_names: list[str]
+    Z_kin: Tensor | None = None  # (N, M_kin) separate kinship panel when --kinship-geno is given, else None
+    chrom_kin: np.ndarray | None = None  # (M_kin,) chrom label per Z_kin column
+    n_dropped_kin: int = 0  # strains in geno / pheno / covar that the kinship panel lacked
 
 
 def align_inputs(geno: Genotypes, pheno: Phenotypes, covar: Covariates | None = None, *,
-                 dtype: torch.dtype = torch.float64) -> AlignedDataset:
+                 dtype: torch.dtype = torch.float64, kin: Genotypes | None = None) -> AlignedDataset:
     """
     Strain-set intersection across geno, pheno, optional covar.  Reorders all three onto a common N row order,
     builds X = [intercept | covariates], and the whole thing comes back as torch tensors at the requested
@@ -126,19 +129,30 @@ def align_inputs(geno: Genotypes, pheno: Phenotypes, covar: Covariates | None = 
     fastlmm does the equivalent inside its SnpReader pipeline (intersect_apply in
     pysnptools/util/intersect_apply.py).  Doing it on my side becuase slicing things by hand later is way
     easier wehn alignment is its own step
+    kin is an optional second genotype panel used only to build K, e.g. SNPs for the kinship while geno holds
+    CNVs to test.  Its strains join the intersection and its columns come back in the common iid order
     """
     g_set = set(geno.iid)
     p_set = set(pheno.iid)
     common = g_set & p_set
     if covar is not None:
         common &= set(covar.iid)
+    n_dropped_kin = 0
+    if kin is not None:
+        n_before = len(common)
+        common &= set(kin.iid)
+        n_dropped_kin = n_before - len(common)
     if not common:
-        raise ValueError("no strain overlap between geno / pheno / covar")
+        raise ValueError("no strain overlap between geno / pheno / covar / kinship")
     iid = [s for s in geno.iid if s in common]  # keeping geno file order so runs reproduce
     g_idx = [geno.iid.index(s) for s in iid]
     p_idx = [pheno.iid.index(s) for s in iid]
     Z = geno.Z[g_idx, :]
     Y = pheno.Y[p_idx, :]
+    Z_kin = None
+    if kin is not None:
+        kin_pos = {s_: i for i, s_ in enumerate(kin.iid)}
+        Z_kin = torch.from_numpy(kin.Z[[kin_pos[s_] for s_ in iid], :]).to(dtype)
     if covar is not None:
         c_idx = [covar.iid.index(s) for s in iid]
         X = np.concatenate([np.ones((len(iid), 1)), covar.C[c_idx, :]], axis = 1)
@@ -146,7 +160,8 @@ def align_inputs(geno: Genotypes, pheno: Phenotypes, covar: Covariates | None = 
         X = np.ones((len(iid), 1))
     return AlignedDataset(iid = iid, Z = torch.from_numpy(Z).to(dtype), Y = torch.from_numpy(Y).to(dtype),
                           X = torch.from_numpy(X).to(dtype), chrom = geno.chrom, pos = geno.pos,
-                          snp_id = geno.sid, pheno_names = pheno.names)
+                          snp_id = geno.sid, pheno_names = pheno.names, Z_kin = Z_kin,
+                          chrom_kin = kin.chrom if kin is not None else None, n_dropped_kin = n_dropped_kin)
 
 
 # STANDARDISING -------

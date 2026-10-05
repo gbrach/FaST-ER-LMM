@@ -379,7 +379,8 @@ def snp_wald_scan(spectrum: Spectrum, log_delta: Tensor, S_rot: Tensor, *, snp_c
 
 
 def loco_scan(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_real: int | None = None,
-              on_chrom = None) -> ScanResult:
+              on_chrom = None,
+              Z_kin: Tensor | None = None, chrom_kin: np.ndarray | None = None) -> ScanResult:
     """
     PORT IS DONE!
     Multi-pheno Leave-One-Chromosome-Out scan, ports the LocoGwas path in single_snp.py
@@ -396,7 +397,11 @@ def loco_scan(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_real: int
     full per-SNP detail, trailing perm columns only feed the per-column genome max.  Z must be
     pre-standardised (use io.standardise_columns).  on_chrom, if given, is called on_chrom(chroms_done,
     chroms_total) after each chromosome for progress reporting
+    Z_kin / chrom_kin, if given, are a separate pre-standardised panel that builds every K_loco (dropping chrom c
+    from it), Z stays the tested panel.  Both or neither
     """
+    if (Z_kin is None) != (chrom_kin is None):
+        raise ValueError("Z_kin and chrom_kin go together")
     M = Z.shape[1]
     P = Y.shape[1]
     if n_real is None:
@@ -410,9 +415,11 @@ def loco_scan(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_real: int
     max_F = torch.full((P,), float("-inf"), dtype = Z.dtype, device = Z.device)
     chroms = sorted(np.unique(chrom).tolist())
     for k_idx, c in enumerate(chroms):
-        kin_mask = chrom != c
         test_mask = chrom == c
-        K = grm(Z[:, kin_mask])  # K_loco for this chromosome
+        if Z_kin is None:
+            K = grm(Z[:, chrom != c])  # K_loco for this chromosome
+        else:
+            K = grm(Z_kin[:, chrom_kin != c])  # K_loco from the separate kinship panel
         spec = rotate(K, X, Y)
         log_delta = fit_delta_grid(spec)  # (P,)
         S_rot = spec.U.T @ Z[:, test_mask]
@@ -429,14 +436,15 @@ def loco_scan(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_real: int
     return ScanResult(f = f, beta = beta, se = se, sfve = sfve, nullh2 = nullh2, max_F = max_F)
 
 
-def single_k_scan(Z: Tensor, X: Tensor, Y: Tensor, *, n_real: int | None = None) -> ScanResult:
+def single_k_scan(Z: Tensor, X: Tensor, Y: Tensor, *, n_real: int | None = None,
+                  Z_kin: Tensor | None = None) -> ScanResult:
     """
     Non-LOCO whole-genome scan: one K from all SNPs, one rotation + delta-fit, one snp_wald_scan over all M
     Less defensible than LOCO (proximal contamination -- the tested SNP sits in the K it's compared against)
     but cheaper, occasionally useful for sanity checks or tiny chrom counts where LOCO degenerates
     Same Z assumptions as loco_scan (pre-standardised).  Returns a ScanResult, n_real defaults to all phenos
     """
-    K = grm(Z)
+    K = grm(Z if Z_kin is None else Z_kin)  # Z_kin: separate pre-standardised kinship panel
     spec = rotate(K, X, Y)
     log_delta = fit_delta_grid(spec)  # (P,)
     S_rot = spec.U.T @ Z
@@ -667,7 +675,8 @@ def snp_wald_scan_compat(spec: CompatSpectrum, log_delta: Tensor, S: Tensor, *, 
 
 
 def loco_scan_compat(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_real: int | None = None,
-                     on_chrom = None) -> ScanResult:
+                     on_chrom = None,
+                     Z_kin: Tensor | None = None, chrom_kin: np.ndarray | None = None) -> ScanResult:
     """
     PORT IS DONE!
     Multi-pheno Leave-One-Chromosome-Out scan in fastlmm-compat mode, ports the LocoGwas path in single_snp.py
@@ -679,7 +688,11 @@ def loco_scan_compat(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_re
     flows down: leading columns keep full per-SNP detail, trailing perm columns only feed the per-column
     genome max.  Z must be pre-standardised (use io.standardise_columns).  on_chrom, if given, is called
     on_chrom(chroms_done, chroms_total) after each chromosome
+    Z_kin / chrom_kin, if given, are a separate pre-standardised panel that builds every K_loco (dropping chrom c
+    from it), Z stays the tested panel.  Both or neither
     """
+    if (Z_kin is None) != (chrom_kin is None):
+        raise ValueError("Z_kin and chrom_kin go together")
     M = Z.shape[1]
     P = Y.shape[1]
     if n_real is None:
@@ -693,9 +706,11 @@ def loco_scan_compat(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_re
     max_F = torch.full((P,), float("-inf"), dtype = Z.dtype, device = Z.device)
     chroms = sorted(np.unique(chrom).tolist())
     for k_idx, c in enumerate(chroms):
-        kin_mask = chrom != c
         test_mask = chrom == c
-        K = grm(Z[:, kin_mask])  # K_loco for this chromosome
+        if Z_kin is None:
+            K = grm(Z[:, chrom != c])  # K_loco for this chromosome
+        else:
+            K = grm(Z_kin[:, chrom_kin != c])  # K_loco from the separate kinship panel
         spec = fastlmm_compat_rotate(K, X, Y)
         log_delta = fit_delta_grid_compat(spec)  # (P,)
         res = snp_wald_scan_compat(spec, log_delta, Z[:, test_mask], n_real = n_real)
@@ -711,14 +726,15 @@ def loco_scan_compat(Z: Tensor, X: Tensor, Y: Tensor, chrom: np.ndarray, *, n_re
     return ScanResult(f = f, beta = beta, se = se, sfve = sfve, nullh2 = nullh2, max_F = max_F)
 
 
-def single_k_scan_compat(Z: Tensor, X: Tensor, Y: Tensor, *, n_real: int | None = None) -> ScanResult:
+def single_k_scan_compat(Z: Tensor, X: Tensor, Y: Tensor, *, n_real: int | None = None,
+                         Z_kin: Tensor | None = None) -> ScanResult:
     """
     Non-LOCO whole-genome scan in fastlmm-compat mode: one K from all SNPs, one compat rotation + delta-fit,
     one snp_wald_scan_compat over all M
     Same proximal-contamination caveat as single_k_scan, just the fastlmm-compat rotation insted of the plain
     one.  Z must be pre-standardised
     """
-    K = grm(Z)
+    K = grm(Z if Z_kin is None else Z_kin)  # Z_kin: separate pre-standardised kinship panel
     spec = fastlmm_compat_rotate(K, X, Y)
     log_delta = fit_delta_grid_compat(spec)  # (P,)
     return snp_wald_scan_compat(spec, log_delta, Z, n_real = n_real)

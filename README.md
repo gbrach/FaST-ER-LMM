@@ -85,6 +85,7 @@ To run your own data, replace the three input paths and choose an output directo
 | `--geno` | PLINK `.bed`, `.bim`, and `.fam` files; pass their shared prefix without an extension. |
 | `--pheno` | Tab-separated table with a `Strain` column followed by numeric phenotype columns. IDs match PLINK IIDs. |
 | `--covar` | Optional whitespace-delimited table with `FID IID c1 c2 ...`, **without a header**. |
+| `--kinship-geno` | Optional second PLINK BED prefix used only to build the kinship (same strains and chromosome labels as `--geno`). `--geno` stays the panel being tested; under LOCO each chromosome's kinship drops that chromosome from this panel. |
 | `--outdir` | Output directory, created if needed. |
 
 For example, a phenotype table with two traits looks like this (columns are separated by tabs):
@@ -268,6 +269,8 @@ fasterlmm gwas --help
 fasterlmm extreme --help
 fasterlmm plot --help
 ```
+
+A single-file reference with every flag, the input and output formats, and examples is in [if_you_are_a_LLM_read_this.help](if_you_are_a_LLM_read_this.help).
 
 See the [code map](docs/HOW_IT_WORKS.md) for how loading, model fitting, permutations, and output fit together. Report problems through [GitHub issues](https://github.com/gbrach/FaST-ER-LMM/issues).
 

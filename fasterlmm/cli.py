@@ -192,7 +192,19 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         raise RuntimeError("--device mps but this torch build has no working mps backend, "
                            "need a recent torch on apple silicon")
     dtype = torch.float32 if device.startswith("mps") else torch.float64
-    data = align_inputs(geno, pheno, covar, dtype = dtype)
+    kin = None
+    if args.kinship_geno:
+        kin = read_plink(args.kinship_geno)
+        print(f"{log_prefix}kinship panel: N={len(kin.iid)} M={len(kin.sid)}", file = sys.stderr, flush = True)
+        # LOCO drops the tested chrom from the kinship panel, so a label mismatch would silently drop nothing
+        missing = sorted(set(map(str, np.unique(geno.chrom))) - set(map(str, np.unique(kin.chrom))))
+        if args.loco and missing:
+            raise SystemExit(f"--kinship-geno has no variants on chrom(s) {missing} that --geno tests, "
+                             f"chromosome labels must match across the two plink sets")
+    data = align_inputs(geno, pheno, covar, dtype = dtype, kin = kin)
+    if kin is not None and data.n_dropped_kin:
+        print(f"{log_prefix}kinship panel lacked {data.n_dropped_kin} strains present in geno / pheno / covar, "
+              f"dropped", file = sys.stderr, flush = True)
 
     # writer pool is plain threads -- pyarrow's csv writer drops the GIL, so the threads overlap
     # the gpu scan without the fork-a-clean-process dance a ProcessPoolExecutor would need.  the
@@ -223,6 +235,8 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
 
     if device != "cpu":
         data.Z = data.Z.to(device)
+        if data.Z_kin is not None:
+            data.Z_kin = data.Z_kin.to(device)
         data.X = data.X.to(device)
         data.Y = data.Y.to(device)
     gpu_name = (f", {torch.cuda.get_device_name(0)}"
@@ -417,6 +431,10 @@ def main() -> None:
                                      description = "torch port of fastlmm GWAS with " "LOCO + perm threshold")
     parser.add_argument("--geno", required = True, help = "plink BED prefix")
     parser.add_argument("--pheno", required = True, help = "wide phen tsv with Strain column")
+    parser.add_argument("--kinship-geno", default = None, metavar = "PREFIX",
+                        help = "second plink BED prefix used only to build the kinship (same strains and chromosome "
+                               "labels as --geno), --geno stays the panel being tested.  Under LOCO each chrom's K "
+                               "drops that chrom from this panel")
     parser.add_argument("--covar", default = None, help = "plink-style .cov (optional)")
     parser.add_argument("--outdir", required = True, help = "output dir, will be created if missing")
     parser.add_argument("--pheno-idx", type = int, default = None,

@@ -1,0 +1,184 @@
+# FaST-ER-LMM reference
+
+Command-line reference for `fasterlmm`: every command, every option and examples.
+Version 1.3.1. Flag tables are taken from the argparse definitions of each command.
+
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `fasterlmm gwas` | LOCO (default) or single-K scan, all phenotypes, permutation threshold |
+| `fasterlmm extreme` | Large-N scan: capped low-rank kinship and streamed genotype blocks, always LOCO |
+| `fasterlmm watch PATH` | Live terminal dashboard for a running job |
+| `fasterlmm concat OUTDIR` | Gather the bundle parts of a `--shard` array run |
+| `fasterlmm plot INPUT --manhattan` | Manhattan PDFs from saved results |
+| `gwas-epi`, `epi-watch` | Pairwise epistasis scan and its dashboard (separate `fasterlmm_lux` package, see lux/README.md) |
+
+
+## Input formats
+
+| Input | Format |
+|---|---|
+| `--geno` | PLINK prefix (`.bed`, `.bim`, `.fam` share it, no extension). Variants can be SNPs, indels or CNVs. |
+| `--pheno` | Tab-separated, header `Strain` then one numeric column per phenotype. Strain IDs match the PLINK IIDs. |
+| `--covar` | Whitespace-delimited `FID IID c1 c2 ...`, no header. Optional. |
+| `--kinship-geno` | Second PLINK prefix used only to build the kinship (same strains, same chromosome labels as `--geno`). Optional. |
+
+Strains are intersected across genotype, phenotype, covariate and kinship inputs and reordered to a common order. Phenotype columns are scanned all at once unless `--pheno-idx` or `--pheno-start` / `--pheno-end` select some (zero-based, end exclusive).
+
+Example data: `data/example/example` (PLINK), `example_pheno.tsv`, `example_covar.tab` (150 strains, 1,500 variants, 20 phenotypes).
+
+## gwas
+
+```bash
+fasterlmm gwas --geno data/example/example --pheno data/example/example_pheno.tsv \
+  --covar data/example/example_covar.tab --outdir runs/example/ --device cuda --bundle --manhattan
+```
+
+Defaults worth knowing: LOCO on, rank-based inverse normal transform (Blom) of every phenotype on, 100 permutations per phenotype, threshold at the 5th percentile of the permutation minimum p-values, seed 19930909.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--geno` | required | plink BED prefix |
+| `--pheno` | required | wide phen tsv with Strain column |
+| `--kinship-geno PREFIX` |  | second plink BED prefix used only to build the kinship (same strains and chromosome labels as --geno), --geno stays the panel being tested. Under LOCO each chrom's K drops that chrom from this panel |
+| `--covar` |  | plink-style .cov (optional) |
+| `--outdir` | required | output dir, will be created if missing |
+| `--pheno-idx INT` |  | 0-based pheno column for a single-pheno scan |
+| `--pheno-start INT` |  | 0-based start of a pheno range (inclusive) |
+| `--pheno-end INT` |  | 0-based end of a pheno range (exclusive) |
+| `--loco / --no-loco` | `True` | leave-one-chromosome-out, ON by default (use --no-loco to fit one K over all SNPs) |
+| `--n-perm INT` | `100` | permutation count for the threshold |
+| `--perm-quantile FLOAT` | `0.05` | quantile of per-perm min-p used as the genome-wide threshold (default 0.05) |
+| `--phenos-per-job INT` | `256` | real phenos packed into one gpu scan, gpu cols = this x (1 + n_perm). bigger amortizes the per-chromosome eigendecomposition over more phenos, smaller trims gpu memory |
+| `--write-workers INT` |  | writer threads for the per-pheno output, which run off the gpu thread so the next batch can scan while this one writes. left unset it fills the core allocation, the cores this job can see split across the gpu workers sharing the node |
+| `--rint / --no-rint` | `True` | Blom rank-based inverse normal transform on each pheno column, ON by default (use --no-rint to disable) |
+| `--seed INT` | `19930909` |  |
+| `--device` | `cuda` | cuda (auto-dispatch across visible GPUs), cuda:N (single device), mps (apple silicon gpu, runs float32), or cpu |
+| `--shard` |  | X/N to process only the X-th of N pheno shards (explicit, e.g. slurm-array) |
+| `--no-multi-gpu` |  | opt out of auto-dispatch when --device cuda sees more than one GPU |
+| `--bundle` |  | after scanning, bundle the per-pheno results into one parquet |
+| `--no-per-pheno-dirs` |  | skip the per-pheno output tree, write only the bundle parquet (needs --bundle) |
+| `--dry-run` |  | load inputs, print the planned work (N/M/P, n_perm, shards, device), and exit before scanning |
+
+Behaviours:
+- `--device cuda` with several visible GPUs splits the phenotype list across them and merges the results itself. `--no-multi-gpu` keeps one GPU.
+- `--no-loco` fits one kinship over all variants (the tested variant sits in its own kinship, so this is less strict than LOCO).
+- `--kinship-geno PREFIX` builds the kinship from another panel. Under LOCO each tested chromosome is dropped from that panel, so the chromosome labels must match between the two PLINK sets (a missing label is an error).
+- `--phenos-per-job` sets how many phenotypes share one batch. The kinship eigendecomposition is genotype-only, so a bigger batch spreads it over more phenotypes; lower it to cut GPU memory.
+- `--dry-run` loads inputs and prints the planned work without scanning.
+
+## extreme
+
+Use when the dense kinship no longer fits (large N). Estimates relatedness from a subset of variants (strided, or a panel given with `--grm`) and can stream the tested variants from disk in blocks. Fewer kinship markers changes the relatedness estimate, it does not reduce the variants tested. Always LOCO, same phenotype selection, permutation, bundle and shard options as gwas.
+
+```bash
+fasterlmm extreme --geno data/bigN --pheno phen.tsv --outdir runs/bigN/ \
+  --grm-k 5000 --block-size 8192 --resident off --device cuda --bundle
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--geno` | required | plink BED prefix for the test variants |
+| `--pheno` | required | wide phen tsv with Strain column |
+| `--covar` |  | plink-style .cov (optional) |
+| `--grm` |  | plink BED prefix for a pre-pruned kinship marker set (optional, else auto-strided from --geno) |
+| `--grm-k INT` | `5000` | target kinship marker count for the auto-stride when --grm is not given (default 5000) |
+| `--outdir` | required | output dir, created if missing |
+| `--pheno-idx INT` |  | 0-based pheno column for a single-pheno scan |
+| `--pheno-start INT` |  | 0-based start of a pheno range (inclusive) |
+| `--pheno-end INT` |  | 0-based end of a pheno range (exclusive) |
+| `--n-perm INT` | `100` | permutation count for the threshold |
+| `--perm-quantile FLOAT` | `0.05` | quantile of per-perm min-p used as the genome-wide threshold (default 0.05) |
+| `--phenos-per-job INT` | `64` | real phenos packed into one streamed scan, the genotype re-streams once per chunk. gpu cols = this x (1 + n_perm) |
+| `--block-size INT` | `8192` | test variants held resident per streamed block, the lever that keeps the N x M genotype off the heap |
+| `--resident` | `auto` | hold the standardised genotype resident when N x M fits ram (auto, the default), force on, or always stream (off). resident decodes once insted of re-streaming every pheno batch |
+| `--write-workers INT` |  | writer threads, unset fills the core allocation |
+| `--rint / --no-rint` | `True` | Blom rank-based inverse normal transform per pheno, ON by default |
+| `--float64` |  | run in float64 (default float32, the scale setting) |
+| `--seed INT` | `19930909` |  |
+| `--device` | `cuda` | cuda (auto-dispatch across visible GPUs), cuda:N (single device), cpu, or mps |
+| `--shard` |  | X/N to process only the X-th of N pheno shards (explicit, e.g. slurm-array) |
+| `--no-multi-gpu` |  | opt out of auto-dispatch when --device cuda sees more than one GPU |
+| `--bundle` |  | stream the per-pheno tables into one gwas_bundle.parquet |
+| `--no-per-pheno-dirs` |  | skip the per-pheno output tree, write only the bundle (needs --bundle) |
+
+## Outputs
+
+Per phenotype directory under the outdir (skipped with `--no-per-pheno-dirs`):
+
+| File | Contents |
+|---|---|
+| `gwas.tsv` | Per-variant results sorted by p-value, FaST-LMM `single_snp` column format |
+| `perms.tsv` | Minimum genome-wide p-value of each permutation |
+| `threshold.txt` | Significance threshold |
+
+Result columns: `sid_index`, `SNP`, `Chr`, `GenDist`, `ChrPos`, `PValue`, `SnpWeight`, `SnpWeightSE`, `EffectSize`, `SnpFractVarExpl`, `Mixing`, `Nullh2`, `Pheno`, `PhenoCount`. The bundle adds `threshold` and `significant` (`PValue < threshold`).
+`sid_index` restarts per LOCO fold, so join results on `SNP`, not on `sid_index`.
+
+With `--bundle`, `gwas_bundle.parquet/` is a directory of Parquet parts (`gwas-results-part-00000.parquet`, shard runs prefix `shard0-`). Several phenotypes share a file; read the whole directory.
+
+```python
+import pandas as pd
+results = pd.read_parquet("runs/example/gwas_bundle.parquet")
+hits = results.loc[results["significant"]]
+print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
+```
+
+Progress goes to `status.json` (`status.shard*.json` for sharded runs), which `fasterlmm watch` renders.
+
+## Multiple GPUs, Slurm arrays
+
+Single job, several GPUs: `--device cuda` is enough, results are merged automatically.
+Array or several nodes: give each task a zero-based `--shard X/N` and the same `--outdir`, then gather.
+
+```bash
+fasterlmm gwas --geno data/yeast --pheno phen.tsv --covar aneuploidies.cov --outdir runs/all/ \
+  --device cuda --bundle --shard "${SLURM_ARRAY_TASK_ID}/8"
+fasterlmm concat runs/all/
+```
+
+### concat
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `outdir (positional)` |  | the gwas --outdir, the one holding .bundle_parts/ |
+| `--out` |  | bundle dataset path to write (default <outdir>/gwas_bundle.parquet) |
+
+## watch
+
+```bash
+fasterlmm watch runs/example/
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `path (positional)` |  | outdir (multi-GPU dashboard) or a status.json file (single pane) |
+
+A directory gives the multi-GPU dashboard (one panel per shard), a single `status.json` gives one pane.
+
+## plot
+
+Manhattan PDFs from saved results, without rerunning the scan. INPUT is a run directory, a phenotype directory, a `gwas.tsv`, a Parquet file or the bundle dataset. One PDF per phenotype by default (`manhattan/<phenotype>.pdf` next to a bundle, `<phenotype>/manhattan.pdf` otherwise); `--out` combines the selected phenotypes into one multipage PDF.
+
+```bash
+fasterlmm plot runs/example/ --manhattan --pheno YAL001C --pheno YAL002W --out runs/example/selected.pdf
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `input (positional)` |  | run directory, phenotype directory, gwas.tsv, or Parquet file/dataset |
+| `--out` |  | combine selected phenotypes into this PDF (default: one PDF per phenotype) |
+| `--bundle` |  | combine selected phenotypes into one manhattan.pdf |
+| `--pheno` |  | phenotype name to plot; repeat to select several |
+
+Shared with `gwas`, `extreme` and `concat` (they accept `--manhattan` to plot during or after the scan):
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--manhattan` |  | write one Manhattan PDF per phenotype |
+| `--chrom-sizes` |  | chromosome lengths: whitespace-delimited chromosome/length columns, no header (or .fai) |
+| `--label-top INT` | `10` | maximum significant SNP labels per plot (0 disables labels) |
+
+Style: alternating skyblue and navy chromosomes, red dashed permutation threshold, black triangles for significant variants, up to `--label-top` labelled hits. `--chrom-sizes` takes two whitespace-separated columns (chromosome, length) without a header, or a FASTA `.fai`; without it, chromosome widths are the largest observed position.

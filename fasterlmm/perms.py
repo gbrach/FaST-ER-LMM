@@ -34,6 +34,7 @@ def perm_threshold(data: AlignedDataset, pheno_idx: list[int], *, n_perm: int = 
     Compare the real F against the empirical quantile of perm_max_F to get the genome-wide threshold
     """
     Z_std = standardise_columns(data.Z)
+    Z_kin_std = standardise_columns(data.Z_kin) if data.Z_kin is not None else None
     X = data.X
     chrom = data.chrom
     B = len(pheno_idx)
@@ -53,9 +54,10 @@ def perm_threshold(data: AlignedDataset, pheno_idx: list[int], *, n_perm: int = 
     Y_all = torch.cat([y_real, y_perms], dim = 1)  # (N, B + B*n_perm)
 
     if loco:
-        res = loco_scan_compat(Z_std, X, Y_all, chrom, n_real = B, on_chrom = on_chrom)
+        res = loco_scan_compat(Z_std, X, Y_all, chrom, n_real = B, on_chrom = on_chrom, Z_kin = Z_kin_std,
+                               chrom_kin = data.chrom_kin)
     else:
-        res = single_k_scan_compat(Z_std, X, Y_all, n_real = B)  # one K over all SNPs
+        res = single_k_scan_compat(Z_std, X, Y_all, n_real = B, Z_kin = Z_kin_std)  # one K over all kinship variants
 
     perm_max_F = res.max_F[B:].reshape(B, n_perm)  # row b holds pheno b's per-perm genome max F
     return res, perm_max_F
