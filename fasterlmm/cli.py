@@ -147,7 +147,8 @@ def _write_pheno(ctx: dict, outdir_str: str, pheno_name: str, p_col, beta_col, s
         _write_tsv(table.select(list(cols)[:-2]), sub / "gwas.tsv")
         _write_tsv(pa.table({"perm_min_p": perm_min_p}), sub / "perms.tsv")
         (sub / "threshold.txt").write_text(f"{thresh:.6e}\n")
-        (sub / "lambda_gc.txt").write_text(f"{lam:.6f}\n")
+        if bundle_writer is None:  # with --bundle the summary lambda_gc.tsv is the only lambda output
+            (sub / "lambda_gc.txt").write_text(f"{lam:.6f}\n")
     if bundle_writer is not None:
         # appended straight into the streaming bundle, one row group, no per-pheno parquet on disk
         bundle_writer.append(table)
