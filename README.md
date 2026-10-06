@@ -11,10 +11,10 @@
 
 FaST-ER-LMM is a PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM). Give it PLINK genotypes, a table of phenotypes, and optional covariates. It runs an association scan for each phenotype, accounts for relatedness, and estimates genome-wide significance thresholds with permutations.
 
-- **Many phenotypes in one run.** Batch traits and their permutations together; distribute phenotypes across available NVIDIA GPUs automatically.
-- **LOCO by default.** Leave-one-chromosome-out scans estimate relatedness from the other chromosomes.
-- **A path for larger cohorts.** The `extreme` command uses low-rank kinship and optional genotype streaming to reduce memory use.
-- **Results in usable shape.** Per-phenotype TSVs, one combined Parquet dataset, and a live terminal dashboard to watch the scan go.
+- Batch phenotypes and their permutations together, with automatic distribution across available NVIDIA GPUs.
+- Leave-one-chromosome-out (LOCO) is the default: kinship for each chromosome is estimated from the other chromosomes.
+- The `extreme` command uses low-rank kinship and optional genotype streaming to reduce memory use for larger cohorts.
+- Results include per-phenotype TSVs and a combined Parquet dataset. Follow progress with the live terminal dashboard.
 
 [Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [Manhattan plots](#manhattan-plots) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets)
 
@@ -35,7 +35,7 @@ These are single-run timings recorded in [the figure script](generate_figures.py
 
 ## Install
 
-Requires **Python 3.10+**. Install directly from GitHub inside a mamba environment:
+Requires Python 3.10+. Install directly from GitHub inside a mamba environment:
 
 ```bash
 mamba create -n fasterlmm python=3.11 pip git -y
@@ -45,13 +45,13 @@ python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
 
 Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed.
 
-**GPU users, check this right after installing.** `python -c "import torch; print(torch.cuda.is_available())"` must print `True`. A `False` usually means a CPU-only PyTorch, which happens when conda-forge sits ahead of `pytorch` and `nvidia` in the channel list (`conda config --show channels`). Put `pytorch` and `nvidia` first, or install PyTorch with pip, then reinstall.
+For NVIDIA GPU runs, check that `python -c "import torch; print(torch.cuda.is_available())"` prints `True`. If it prints `False`, PyTorch cannot access CUDA in this environment. Check that your PyTorch build supports CUDA and that the GPU is available.
 
 CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
 
 ## Quick start
 
-FaST-ER-LMM is already installed by the commands above. Clone the repository to get the example data; no second installation is needed:
+The commands above install FaST-ER-LMM. Clone the repository to get the example data:
 
 ```bash
 git clone https://github.com/gbrach/FaST-ER-LMM.git
@@ -90,7 +90,7 @@ fasterlmm gwas \
   --outdir runs/example_kinship/
 ```
 
-`--geno` is still the panel being tested. Both PLINK sets need the same strains and matching chromosome labels, since LOCO drops the tested chromosome from the kinship panel.
+`--geno` is still the panel being tested. Both PLINK sets need the same individuals and matching chromosome labels, since LOCO drops the tested chromosome from the kinship panel.
 
 ## Recommended setup
 
@@ -105,10 +105,10 @@ fasterlmm gwas \
   --bundle --no-per-pheno-dirs --clump
 ```
 
-- Rank-based inverse normal transform (RINT) is applied automatically to every phenotype, so raw values go in as they are. `pheno_rint.tsv` in the output directory holds the transformed table. Use `--no-rint` only for phenotypes that are already normalised.
+- The scan applies a rank-based inverse normal transform (RINT) to every phenotype by default, so you can supply raw values. `pheno_rint.tsv` in the output directory holds the transformed table. Use `--no-rint` to keep values as supplied, for example if they are already normalised.
 - `--bundle --no-per-pheno-dirs` writes one Parquet dataset in place of one folder per phenotype, which matters at thousands of phenotypes. `lambda_gc.tsv` holds the inflation factors in that mode.
-- `--clump` adds an `LDGroup` column to the bundle, so the significant variants of each phenotype come already grouped by LD (defaults: 50 kb window, r2 0.5).
-- Missing values in the phenotype table are fine: phenotypes sharing the same missing strains are scanned together on their own strain subset.
+- `--clump` adds an `LDGroup` column to the bundle, grouping significant variants by LD (defaults: 50 kb window, r2 0.5).
+- Missing values in the phenotype table are fine: phenotypes missing values for the same individuals are scanned together using the remaining individuals.
 
 ## Input formats
 
@@ -117,7 +117,7 @@ fasterlmm gwas \
 | `--geno` | PLINK `.bed`, `.bim`, and `.fam` files; pass their shared prefix without an extension. |
 | `--pheno` | Tab-separated table with a `Strain` column followed by numeric phenotype columns. IDs match PLINK IIDs. |
 | `--covar` | Optional whitespace-delimited table with `FID IID c1 c2 ...`, **without a header**. |
-| `--kinship-geno` | Optional second PLINK BED prefix used only to build the kinship (same strains and chromosome labels as `--geno`). `--geno` stays the panel being tested; under LOCO each chromosome's kinship drops that chromosome from this panel. |
+| `--kinship-geno` | Optional second PLINK BED prefix for estimating kinship (`gwas` only). Use the same individuals and chromosome labels as `--geno`; LOCO excludes the tested chromosome from this panel. |
 | `--outdir` | Output directory, created if needed. |
 
 For example, a phenotype table with two traits looks like this (columns are separated by tabs):
@@ -137,7 +137,7 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 |---|---|
 | `--n-perm 1000` | Run 1,000 permutations per phenotype; default: 100. |
 | `--perm-quantile 0.05` | Set the quantile of permutation minimum p-values used as the significance threshold; default: 0.05. |
-| `--clump` | Add an `LDGroup` column: per phenotype, LD groups (connected components) of the variants under the permutation threshold. |
+| `--clump` | Add an `LDGroup` column for variants below each phenotype's permutation threshold (`gwas` only). |
 | `--clump-window-kb 50` | Maximum distance in kb between two variants for them to be linked in the same group; default: 50. |
 | `--clump-r2 0.5` | r2 at or above which two variants are linked in the same group; default: 0.5. |
 | `--clump-p 1e-5` | Fixed p-value cutoff for the variants that get a group, instead of each phenotype's permutation threshold. |
@@ -157,8 +157,7 @@ runs/example/
 ├── <phenotype>/
 │   ├── gwas.tsv
 │   ├── perms.tsv
-│   ├── threshold.txt
-│   └── lambda_gc.txt
+│   └── threshold.txt
 ├── gwas_bundle.parquet/
 │   └── gwas-results-part-00000.parquet
 ├── manhattan/
@@ -179,7 +178,11 @@ Each phenotype gets:
 | `threshold.txt` | The significance threshold: the 5th percentile of permutation minimum p-values by default. |
 | `lambda_gc.txt` | Genomic inflation factor (lambda GC) of the phenotype, written only without `--bundle`. |
 
-With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants under the cutoff get a group, the rest stay empty. Two such variants are linked when they sit on the same chromosome, within the window, with r2 at or above the threshold, and a group is a connected component of those links, so it can chain past the window through intermediate variants. Groups are numbered from 1 by their smallest p-value, so group 1 holds the top hit. This is the same grouping as `addLinkageGroups.py` of the 1086 yeast genomes GWAS, without the plink call: r2 is the squared Pearson correlation over the strains called in both variants, as plink `--r2` reports it, computed on all strains so it does not depend on the phenotype. Against plink 1.90 the r2 values agree to 1e-6 and the groups are identical, with and without missing calls.
+With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants below the cutoff get a group; the rest stay empty.
+
+Two variants are linked if they are on the same chromosome, within the distance window, and meet the r² cutoff. Groups are connected components, so a chain of linked variants can extend beyond the window. Groups are numbered by their smallest p-value; group 1 contains the top hit.
+
+LD uses squared Pearson correlation over individuals called at both variants, as in PLINK `--r2`. It is calculated from the full aligned genotype panel, independently of phenotype missingness. The grouping follows `addLinkageGroups.py` from the [1086 yeast genomes GWAS](https://github.com/HaploTeam/1086YeastGenomes/tree/main/GWAS).
 
 The combined bundle adds `threshold` and `significant` columns. A variant is marked significant when its p-value is below its phenotype's threshold.
 
@@ -193,17 +196,29 @@ hits = results.loc[results["significant"]]
 print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
 ```
 
-Despite its suffix, `gwas_bundle.parquet` is a **directory of Parquet parts**. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
+In R, read the bundle with `arrow` and the tidyverse:
+
+```r
+pak::pak(c("arrow", "tidyverse"))
+
+gwas_results <- dplyr::collect(arrow::open_dataset("~/GWAS_Carmen/gwas_carmen_mexagave/gwas_bundle.parquet", format = "parquet"))
+```
+
+`gwas_bundle.parquet` is a directory of Parquet parts. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
 
 Parts are named `gwas-results-part-00000.parquet`, `gwas-results-part-00001.parquet`, and so on. Gathered GPU or cluster shards add a prefix, such as `shard0-gwas-results-part-00000.parquet`. Each file can contain several phenotypes; read the whole directory to load all results.
 
-`lambda_gc.tsv` lists the genomic inflation factor of every phenotype (with `--bundle` it is the only lambda output; without it each phenotype folder also gets a `lambda_gc.txt`) (`Pheno`, `PhenoIndex`, `LambdaGC`, `NVariants`), in phenotype column order, also with `--no-per-pheno-dirs`. It is computed from the PValue column as the median of `qchisq(1 - p, 1)` divided by `qchisq(0.5, 1)`, the same definition as `calc_GIF.R` in the [1086 yeast genomes repository](https://github.com/HaploTeam/1086YeastGenomes/blob/main/GWAS/src/calc_GIF.R), with missing p-values dropped. A `--shard` array writes one `lambda_gc.shardX.tsv` per task and `fasterlmm concat` merges them.
+`lambda_gc.tsv` lists the genomic inflation factor of every scanned phenotype in phenotype column order, with columns `Pheno`, `PhenoIndex`, `LambdaGC`, and `NVariants`. It is written even with `--no-per-pheno-dirs`. With `--bundle`, it is the only lambda output; without it, each phenotype folder also gets `lambda_gc.txt`.
 
-With RINT on (the default), `pheno_rint.tsv` holds the transformed phenotype table in the input layout (a `Strain` column, then one column per phenotype, input strain order), so the values the scan used can be inspected or fed back with `--pheno ... --no-rint`. It covers every strain in the phenotype file, before matching to the genotype. A `--shard` array writes it from task 0 only, and `--no-rint` skips it.
+Lambda GC is computed from the `PValue` column as the median of `qchisq(1 - p, 1)` divided by `qchisq(0.5, 1)`, with missing p-values dropped. This is the same definition as `calc_GIF.R` in the [1086 yeast genomes repository](https://github.com/HaploTeam/1086YeastGenomes/blob/main/GWAS/src/calc_GIF.R). A `--shard` array writes one `lambda_gc.shardX.tsv` per task, and `fasterlmm concat` merges them.
 
-Missing values (NA, or empty cells) in the phenotype table are allowed. Phenotypes sharing the same missing strains are grouped, and each group is scanned on its own strain subset with one eigendecomposition per chromosome, so no strain is dropped except inside the groups where it has no value. This matches running fastlmm on each phenotype after removing its missing strains. A table with no missing values takes the unchanged path. A phenotype that is entirely NA, or left with too few strains to fit, is skipped with a message. With RINT on, ranks use only the observed values of each phenotype. Thousands of distinct patterns cost one decomposition each, so a table with very scattered NAs scans slower than a complete one.
+With RINT on (the default), `pheno_rint.tsv` holds the transformed phenotype table in the input layout (a `Strain` column, then one column per phenotype, input individual order), so the values the scan used can be inspected or fed back with `--pheno ... --no-rint`. It covers every individual in the phenotype file, before matching to the genotype. A `--shard` array writes it from task 0 only, and `--no-rint` skips it.
 
-Every run also records how it was made. `run_info.json` holds the exact command line, all resolved options (defaults included), the input files with their sizes and modification times, software versions, the host and GPU, and the final outcome. `run.log` keeps everything printed during the run. Sharded runs write `run_info.shardX.json` and `run.shardX.log` per task. Keep these files with the results to reproduce a run; `status.json` only tracks live progress and is reduced to a short record when the run ends.
+For `gwas`, missing values (NA or empty cells) in the phenotype table are allowed. Phenotypes missing values for the same individuals are scanned together using the remaining individuals, with one eigendecomposition per chromosome. A missing value removes an individual only from the phenotypes where it is missing. This matches running FaST-LMM on each phenotype after removing individuals with missing values.
+
+Phenotypes that are entirely NA, or have too few individuals left to fit the model, are skipped with a message. With RINT on, ranks use only the observed values of each phenotype. Each distinct missing-value pattern needs its own decompositions, so scattered NAs make the scan slower than a complete table.
+
+`run_info.json` records the exact command line, parameter values (including defaults), the input files with their sizes and modification times, software versions, the host and GPU, and the final outcome. `run.log` keeps everything printed during the run. Sharded runs write `run_info.shardX.json` and `run.shardX.log` per task. Keep these files with the results to reproduce a run; `status.json` only tracks live progress and is reduced to a short record when the run ends.
 
 Progress is stored in `status.json`, or `status.shard*.json` for sharded runs, and displayed by `fasterlmm watch`.
 
@@ -221,8 +236,6 @@ fasterlmm gwas \
 ```
 
 With `--bundle`, this writes **one PDF per phenotype** in `runs/example/manhattan/`, alongside `gwas_bundle.parquet/`. It also works with `--no-per-pheno-dirs`. Without `--bundle`, each phenotype folder gets its own `manhattan.pdf`.
-
-The plots use alternating skyblue/navy chromosomes, a red dashed permutation threshold, and black triangles for significant variants. Up to ten of the strongest significant variants are labelled, with collision avoidance. Background points are rasterized at 300 dpi; text, axes, and highlighted hits stay vector-based.
 
 To plot saved results without rerunning GWAS:
 
@@ -276,7 +289,7 @@ fasterlmm concat runs/all/
 
 ## Large datasets
 
-Use `extreme` when the standard scan's memory requirements become limiting. It estimates relatedness from a subset of variants and can stream the test variants from disk in blocks.
+Use `extreme` when the standard scan needs too much memory. It estimates relatedness from a subset of variants and can stream the test variants from disk in blocks.
 
 ```bash
 fasterlmm extreme \
@@ -309,7 +322,7 @@ fasterlmm extreme --help
 fasterlmm plot --help
 ```
 
-A single-file reference with every flag, the input and output formats, and examples is in [if_you_are_a_LLM_read_this.help](if_you_are_a_LLM_read_this.help).
+A single-file reference with every flag, the input and output formats, and examples is in [if_you_are_a_LLM_read_this.help](https://github.com/gbrach/FaST-ER-LMM/blob/main/if_you_are_a_LLM_read_this.help).
 
 See the [code map](docs/HOW_IT_WORKS.md) for how loading, model fitting, permutations, and output fit together.
 
