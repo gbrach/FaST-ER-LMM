@@ -116,3 +116,16 @@ def test_rint_custom_c_parameter():
     expect = norm.ppf((ranks - 0.5) / (n - 2 * 0.5 + 1))
     out = rint_columns(x, c = 0.5)
     assert np.allclose(out, expect, atol = 1e-12)
+
+
+def test_write_rint_matrix_round_trips_through_read_phen(tmp_path):
+    from fasterlmm.io import read_phen
+    from fasterlmm.normalize import write_rint_matrix
+    Y = rint_columns(np.array([[3.0, 1.0], [np.nan, 2.0], [1.0, 9.0], [2.0, 4.0]]))
+    iid = ["b", "a", "d", "c"]
+    path = write_rint_matrix(iid, ["p1", "p2"], Y, tmp_path / "out" / "pheno_rint.tsv")
+    back = read_phen(path)
+    assert back.iid == iid and back.names == ["p1", "p2"]
+    assert np.array_equal(back.Y, Y, equal_nan = True)
+    assert (tmp_path / "out" / "pheno_rint.tsv").read_text().startswith("Strain\tp1\tp2\n")
+    assert not list((tmp_path / "out").glob("*.tmp"))

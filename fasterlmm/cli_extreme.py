@@ -35,7 +35,7 @@ from fasterlmm.extreme_scan import loco_scan_resident, loco_scan_streamed
 from fasterlmm.io import read_covar, read_phen
 from fasterlmm.io_stream import (open_aligned_bed, read_all_standardised, read_grm_factor, select_grm_markers,
                                  stream_genotype_var)
-from fasterlmm.normalize import rint_columns
+from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
 from fasterlmm.progress import write_status
 
 
@@ -152,6 +152,10 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
     pheno = read_phen(args.pheno)
     if args.rint:
         pheno.Y = rint_columns(pheno.Y)  # Blom RINT before alignment, rank-then-qnorm is row-order invariant
+        # the transformed matrix rides along with the results, written once (shard 0 when sharded)
+        if shard_i in (None, 0) and not getattr(args, "dry_run", False):
+            rint_path = write_rint_matrix(pheno.iid, pheno.names, pheno.Y, outdir / RINT_FILENAME)
+            runinfo.update(outdir, shard_i, rint_matrix = str(rint_path))
     covar = read_covar(args.covar) if args.covar else None
 
     common = set(pheno.iid)

@@ -7,8 +7,13 @@ Canonical Blom (c=3/8) to match Victor's R helper
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 from scipy.stats import norm, rankdata
+
+RINT_FILENAME = "pheno_rint.tsv"
 
 
 def rint_columns(Y: np.ndarray, *, c: float = 3 / 8, ties: str = "average") -> np.ndarray:
@@ -43,6 +48,22 @@ def _rint_1d(y: np.ndarray, c: float, ties: str) -> np.ndarray:
     ranks = rankdata(y[mask], method = ties)
     out[mask] = norm.ppf((ranks - c) / (n - 2 * c + 1))
     return out
+
+
+def write_rint_matrix(iid: list[str], names: list[str], Y: np.ndarray, path: str | Path) -> Path:
+    """
+    Write the transformed phenotype table in the input layout: Strain column, then one column per phenotype,
+    tab separated, strains in input order, missing values left empty (read_phen reads them back as NaN)
+    Goes trough a .tmp sibling and a rename so a reader never sees a half written file
+    """
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    path.parent.mkdir(parents = True, exist_ok = True)
+    # pandas prints floats with the shortest repr that round trips, pyarrow's writer was one ulp off
+    pd.DataFrame(Y, index = pd.Index(iid, name = "Strain"), columns = [str(n) for n in names]).to_csv(
+        tmp, sep = "\t", na_rep = "")
+    tmp.replace(path)
+    return path
 
 
 def rint(y: np.ndarray, *, ties_method: str = "average") -> np.ndarray:

@@ -161,6 +161,8 @@ Per phenotype directory under the outdir (skipped with `--no-per-pheno-dirs`):
 | `perms.tsv` | Minimum genome-wide p-value of each permutation |
 | `threshold.txt` | Significance threshold |
 
+With RINT on (default) the outdir also holds `pheno_rint.tsv`: the transformed phenotype table in the input layout (`Strain` column, then one column per phenotype, input strain order, missing values empty), covering every strain of the phenotype file before matching to the genotype. A `--shard` array writes it from task 0 only, `--no-rint` skips it. It can be passed back as `--pheno` together with `--no-rint` (values agree to float precision, about 1e-16).
+
 Result columns: `sid_index`, `SNP`, `Chr`, `GenDist`, `ChrPos`, `PValue`, `SnpWeight`, `SnpWeightSE`, `EffectSize`, `SnpFractVarExpl`, `Mixing`, `Nullh2`, `Pheno`, `PhenoCount`. The bundle adds `threshold` and `significant` (`PValue < threshold`).
 `sid_index` restarts per LOCO fold, so join results on `SNP`, not on `sid_index`.
 

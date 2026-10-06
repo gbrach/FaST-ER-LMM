@@ -140,6 +140,7 @@ runs/example/
 │   └── gwas-results-part-00000.parquet
 ├── manhattan/
 │   └── <phenotype>.pdf
+├── pheno_rint.tsv
 ├── run_info.json
 ├── run.log
 └── status.json
@@ -168,6 +169,8 @@ print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
 Despite its suffix, `gwas_bundle.parquet` is a **directory of Parquet parts**. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
 
 Parts are named `gwas-results-part-00000.parquet`, `gwas-results-part-00001.parquet`, and so on. Gathered GPU or cluster shards add a prefix, such as `shard0-gwas-results-part-00000.parquet`. Each file can contain several phenotypes; read the whole directory to load all results.
+
+With RINT on (the default), `pheno_rint.tsv` holds the transformed phenotype table in the input layout (a `Strain` column, then one column per phenotype, input strain order), so the values the scan used can be inspected or fed back with `--pheno ... --no-rint`. It covers every strain in the phenotype file, before matching to the genotype. A `--shard` array writes it from task 0 only, and `--no-rint` skips it.
 
 Every run also records how it was made. `run_info.json` holds the exact command line, all resolved options (defaults included), the input files with their sizes and modification times, software versions, the host and GPU, and the final outcome. `run.log` keeps everything printed during the run. Sharded runs write `run_info.shardX.json` and `run.shardX.log` per task. Keep these files with the results to reproduce a run; `status.json` only tracks live progress and is reduced to a short record when the run ends.
 

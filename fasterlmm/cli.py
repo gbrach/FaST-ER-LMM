@@ -31,7 +31,7 @@ import torch
 from fasterlmm import runinfo
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.io import align_inputs, read_covar, read_phen, read_plink
-from fasterlmm.normalize import rint_columns
+from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
 
@@ -185,6 +185,10 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         # Blom RINT before alignment so the strain order doesn't matter -- rank-then-qnorm is invariant to row
         # permutation but applying here keeps the pipeline short
         pheno.Y = rint_columns(pheno.Y)
+        # the transformed matrix rides along with the results, written once (shard 0 when sharded)
+        if shard_i in (None, 0) and not getattr(args, "dry_run", False):
+            rint_path = write_rint_matrix(pheno.iid, pheno.names, pheno.Y, outdir / RINT_FILENAME)
+            runinfo.update(outdir, shard_i, rint_matrix = str(rint_path))
     covar = read_covar(args.covar) if args.covar else None
     # mps cant touch float64 at all, so an apple-gpu run drops to float32 -- not
     # bit-for-bit with fastlmm anymore but well inside float noise.  cuda / cpu
