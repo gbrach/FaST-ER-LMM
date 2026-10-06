@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3
+
+- Seed the permutations of a phenotype with missing values on its column in the phenotype table, so its threshold no longer depends on which NA group it lands in. Tables without missing values are unchanged.
+
 ## 1.4.0
 
 - Allow missing values in the phenotype table of `gwas`. Phenotypes are grouped by NA pattern and each group scans on its own strain subset with one eigendecomposition per chromosome; a table without missing values is unchanged. Previously one NA turned every result of that phenotype into NA.

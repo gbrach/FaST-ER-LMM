@@ -301,7 +301,8 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
 
     def _work():
         """
-        Yields (dataset, batch, g_var, df2) per scan batch
+        Yields (dataset, batch, g_var, df2, seed_idx) per scan batch, seed_idx is None on the plain path and the
+        full-table column of each pheno on the grouped path, so the perm seeding does not depend on the group
         No NA in the phenos is the plain path, one dataset over every strain, g_var as built at load
         With NAs the phenos are grouped by NA pattern and each group scans on its own strain subset, so one
         eigendecomposition per chromosome is shared by the whole group and no strain is dropped anywhere else
@@ -310,7 +311,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         step = args.phenos_per_job
         if not torch.isnan(data.Y[:, pheno_list]).any():
             for b in range(0, len(pheno_list), step):
-                yield data, pheno_list[b:b + step], writer_ctx.get("g_var"), data.X.shape[0] - C - 1
+                yield data, pheno_list[b:b + step], writer_ctx.get("g_var"), data.X.shape[0] - C - 1, None
             return
         groups = group_by_na(data.Y, pheno_list)
         print(f"{log_prefix}NAs in the phenos, {len(groups)} distinct NA patterns over {len(pheno_list)} phenos, "
@@ -324,14 +325,15 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
             sub = subset_dataset(data, keep, cols)
             g_var = np.nanvar(sub.Z.cpu().numpy(), axis = 0)
             for b in range(0, len(cols), step):
-                yield sub, list(range(b, min(b + step, len(cols)))), g_var, df2_g
+                local = list(range(b, min(b + step, len(cols))))
+                yield sub, local, g_var, df2_g, [cols[j] for j in local]
 
     # phenos go through the scan in batches -- a whole batch (reals + every perm column) shares one
     # per-chromosome eigendecomposition, so the eigh is paid once per batch instead of once per pheno
     done = 0
     write_futures: list = []
     try:
-        for data_g, batch, g_var, df2 in _work():
+        for data_g, batch, g_var, df2, seed_idx in _work():
             b_start = done
             B = len(batch)
 
@@ -350,7 +352,8 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
 
             t_batch = time.time()
             res, perm_max_F = perm_threshold(data_g, batch, n_perm = args.n_perm, seed = args.seed,
-                                             loco = args.loco, on_chrom = _on_chrom if args.loco else None)
+                                             loco = args.loco, on_chrom = _on_chrom if args.loco else None,
+                                             seed_idx = seed_idx)
             # F -> p once for the whole batch, scipy on cpu is fine.  F itself is not written --
             # fastlmm's schema carries SnpWeight / SnpWeightSE and F is recoverable from them
             p_real = ss.f.sf(res.f.cpu().numpy(), 1, df2)  # (M, B)

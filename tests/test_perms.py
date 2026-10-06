@@ -127,6 +127,34 @@ def test_perm_threshold_batch_order_independent(example_geno, example_pheno):
     assert torch.equal(pmf_01[0], pmf_10[1])
 
 
+def test_perm_threshold_seed_idx_keys_perms_on_full_table_column(example_geno, example_pheno):
+    """a one-column subset dataset seeded with its full-table column gets the perms the plain path gives that pheno"""
+    from fasterlmm.io import subset_dataset
+    data = _data(example_geno, example_pheno)
+    rows = list(range(len(data.iid)))
+    sub = subset_dataset(data, rows, [3])
+    _, pmf_plain = perm_threshold(data, [3], n_perm = 3, seed = 19930909, loco = True)
+    _, pmf_sub = perm_threshold(sub, [0], n_perm = 3, seed = 19930909, loco = True, seed_idx = [3])
+    _, pmf_unseeded = perm_threshold(sub, [0], n_perm = 3, seed = 19930909, loco = True)
+    assert torch.equal(pmf_plain[0], pmf_sub[0])
+    assert not torch.equal(pmf_plain[0], pmf_unseeded[0])
+
+
+def test_group_by_na_groups_by_pattern_and_keeps_observed_strains(example_geno, example_pheno):
+    """phenos with the same missing strains share a group, keep_rows are the strains observed in every column"""
+    from fasterlmm.io import group_by_na
+    data = _data(example_geno, example_pheno)
+    Y = data.Y.clone()
+    Y[[0, 1], 0] = float("nan")
+    Y[[0, 1], 1] = float("nan")
+    Y[2, 2] = float("nan")
+    groups = dict((tuple(cols), keep) for keep, cols in group_by_na(Y, [0, 1, 2, 3]))
+    n = Y.shape[0]
+    assert groups[(0, 1)] == list(range(2, n))
+    assert groups[(2,)] == [i for i in range(n) if i != 2]
+    assert groups[(3,)] == list(range(n))
+
+
 def test_perm_threshold_distinct_phenos_differ(example_geno, example_pheno):
     """two different phenos in one batch get independent shuffles, so their nulls differ"""
     data = _data(example_geno, example_pheno)
