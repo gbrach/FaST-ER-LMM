@@ -32,8 +32,7 @@ from fasterlmm import runinfo
 from fasterlmm.inflation import lambda_gc, merge_shard_tables, write_shard_table
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.clump import ld_clump
-from fasterlmm.io import (align_inputs, group_by_na, read_covar, read_phen, read_plink, standardise_columns,
-                          subset_dataset)
+from fasterlmm.io import align_inputs, group_by_na, read_covar, read_phen, read_plink, subset_dataset
 from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
@@ -242,8 +241,8 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
                       "mixing": np.zeros(M), "phenocount": np.full(M, 1 + args.n_perm),
                       "pheno_idx": pa.array(np.zeros(M, dtype = np.int32)), "lambda_rows": []}
         if args.clump:
-            # LD is computed on every strain, standardised once here, float32 is plenty for an r2 cutoff
-            writer_ctx["clump"] = {"z": standardise_columns(data.Z).numpy().astype(np.float32),
+            # LD is computed on every strain from the raw calls (NaN for missing), float32 holds 0 / 1 / 2 exactly
+            writer_ctx["clump"] = {"z": data.Z.cpu().numpy().astype(np.float32),
                                    "window_bp": args.clump_window_kb * 1000.0, "r2": args.clump_r2,
                                    "p": args.clump_p}
         # one bundle writer per scan process -- a sharded run streams to .bundle_parts/shard{i}.parquet

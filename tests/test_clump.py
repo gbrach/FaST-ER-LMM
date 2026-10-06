@@ -10,7 +10,6 @@ from __future__ import annotations
 import numpy as np
 
 from fasterlmm.clump import ld_clump
-from fasterlmm.io import standardise_columns
 
 
 def _panel(n = 400, seed = 7):
@@ -22,7 +21,7 @@ def _panel(n = 400, seed = 7):
     z = np.stack([base, base, other, base, base, noisy], axis = 1)
     chrom = np.array([1, 1, 1, 1, 2, 1])
     pos = np.array([1000, 20000, 30000, 900000, 1000, 40000], dtype = np.float64)
-    return standardise_columns(z.copy()).astype(np.float32), chrom, pos
+    return z.astype(np.float32), chrom, pos
 
 
 def test_clump_groups_by_window_r2_and_chrom():
@@ -74,7 +73,6 @@ def test_clump_chains_through_an_intermediate_variant():
     n = 6000
     x, y = rng.standard_normal(n), rng.standard_normal(n)
     z = np.stack([x, (x + y) / np.sqrt(2), y], axis = 1).astype(np.float32)
-    z = standardise_columns(z.copy()).astype(np.float32)
     chrom = np.array([1, 1, 1])
     pos = np.array([1000.0, 2000.0, 3000.0])
     p = np.array([1e-9, 1e-8, 1e-7])
@@ -98,14 +96,14 @@ def test_clump_matches_a_brute_force_graph_on_a_blocky_panel():
     n, m = 500, 240
     latent = rng.standard_normal((n, m // 6))
     z = np.repeat(latent, 6, axis = 1) + 0.9 * rng.standard_normal((n, m))  # blocks of 6 correlated variants
-    z = standardise_columns(z.copy()).astype(np.float32)
+    z = z.astype(np.float32)
     chrom = np.repeat([1, 2, 3], m // 3)
     pos = np.tile(np.arange(m // 3) * 5_000.0, 3)
     p = rng.random(m) ** 4
     cutoff, window, r2_min = 0.3, 30_000.0, 0.15
     got = ld_clump(z, chrom, pos, p, cutoff = cutoff, window_bp = window, r2_min = r2_min)
     cand = np.flatnonzero(p <= cutoff)
-    r2 = (z[:, cand].T @ z[:, cand] / n) ** 2
+    r2 = np.corrcoef(z[:, cand].T.astype(np.float64)) ** 2
     adj = (r2 >= r2_min) & (chrom[cand][:, None] == chrom[cand][None, :]) & (np.abs(pos[cand][:, None] - pos[cand][None, :]) <= window)
     np.fill_diagonal(adj, False)
     _, lab = connected_components(adj, directed = False)
@@ -118,3 +116,26 @@ def test_clump_matches_a_brute_force_graph_on_a_blocky_panel():
         ref.setdefault(int(l), set()).add(int(v))
     assert sorted(map(sorted, mine.values())) == sorted(map(sorted, ref.values()))
     assert len(ref) > 5 and max(len(s) for s in ref.values()) > 1  # the panel has real multi-variant groups
+
+
+def test_clump_r2_is_pairwise_complete_with_missing_calls():
+    """missing calls are dropped pair by pair like plink --r2, the groups equal the brute-force pairwise-complete graph"""
+    from scipy.sparse.csgraph import connected_components
+    rng = np.random.default_rng(5)
+    n, m = 800, 60
+    latent = rng.standard_normal((n, m // 4))
+    z = np.digitize(np.repeat(latent, 4, axis = 1) + 0.5 * rng.standard_normal((n, m)), [-0.7, 0.7]).astype(np.float64)
+    z[rng.random(z.shape) < 0.12] = np.nan
+    chrom = np.ones(m, dtype = int)
+    pos = np.arange(m) * 1000.0
+    p = np.full(m, 1e-9)
+    r2_min = 0.3
+    got = ld_clump(z.astype(np.float32), chrom, pos, p, cutoff = 1.0, window_bp = 1e9, r2_min = r2_min)
+    adj = np.zeros((m, m), dtype = bool)
+    for i in range(m):
+        for j in range(i + 1, m):
+            ok = ~np.isnan(z[:, i]) & ~np.isnan(z[:, j])
+            adj[i, j] = adj[j, i] = np.corrcoef(z[ok, i], z[ok, j])[0, 1] ** 2 >= r2_min
+    _, lab = connected_components(adj, directed = False)
+    part = lambda l: sorted(map(tuple, (np.flatnonzero(np.asarray(l) == u) for u in np.unique(l))))
+    assert part(got) == part(lab)
