@@ -45,7 +45,7 @@ python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
 
 Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed.
 
-For NVIDIA GPU runs, check that `python -c "import torch; print(torch.cuda.is_available())"` prints `True`. If it prints `False`, PyTorch cannot access CUDA in this environment. Check that your PyTorch build supports CUDA and that the GPU is available.
+For NVIDIA GPU runs, check that `python -c "import torch; print(torch.cuda.is_available())"` prints `True`. If it prints `False`, PyTorch cannot access CUDA in this environment. Check that the installed PyTorch build supports CUDA and that the GPU is available.
 
 CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
 
@@ -105,7 +105,7 @@ fasterlmm gwas \
   --bundle --no-per-pheno-dirs --clump
 ```
 
-- The scan applies a rank-based inverse normal transform (RINT) to every phenotype by default, so you can supply raw values. `pheno_rint.tsv` in the output directory holds the transformed table. Use `--no-rint` to keep values as supplied, for example if they are already normalised.
+- The scan applies a rank-based inverse normal transform (RINT) to every phenotype by default, so raw values can be supplied. `pheno_rint.tsv` in the output directory holds the transformed table. Use `--no-rint` to keep values as supplied, for example if they are already normalised.
 - `--bundle --no-per-pheno-dirs` writes one Parquet dataset in place of one folder per phenotype, which matters at thousands of phenotypes. `lambda_gc.tsv` holds the inflation factors in that mode.
 - `--clump` adds an `LDGroup` column to the bundle, grouping significant variants by LD (defaults: 50 kb window, r2 0.5).
 - Missing values in the phenotype table are fine: phenotypes missing values for the same individuals are scanned together using the remaining individuals.
