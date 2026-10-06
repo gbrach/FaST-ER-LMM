@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+- Document the `--kinship-geno PREFIX` option of `gwas` (kinship from a second PLINK panel, `--geno` stays the tested panel) in the README and the command-line reference.
+
 ## 1.3.1
 
 - Write one Manhattan PDF per phenotype by default, including Parquet bundles, bundle-only scans, and sharded runs. Bundled results put PDFs in `manhattan/<phenotype>.pdf` beside the dataset; `fasterlmm plot --out combined.pdf` still combines selected phenotypes explicitly.

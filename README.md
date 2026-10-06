@@ -14,9 +14,9 @@ FaST-ER-LMM is a PyTorch port of [FaST-LMM](https://github.com/fastlmm/FaST-LMM)
 - **Many phenotypes in one run.** Batch traits and their permutations together; distribute phenotypes across available NVIDIA GPUs automatically.
 - **LOCO by default.** Leave-one-chromosome-out scans estimate relatedness from the other chromosomes.
 - **A path for larger cohorts.** The `extreme` command uses low-rank kinship and optional genotype streaming to reduce memory use.
-- **Results ready to use.** Per-phenotype TSVs, a combined Parquet dataset, and a live terminal dashboard.
+- **Results in usable shape.** Per-phenotype TSVs, one combined Parquet dataset, and a live terminal dashboard to watch the scan go.
 
-[Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [Manhattan plots](#manhattan-plots) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets) · [LUX](#lux)
+[Quick start](#quick-start) · [Input formats](#input-formats) · [Results](#results) · [Manhattan plots](#manhattan-plots) · [GPUs and clusters](#gpus-and-clusters) · [Large datasets](#large-datasets)
 
 <p align="center">
   <img src=".assets/gif_truth_1g_vs_2g.gif" width="780" alt="Live progress dashboard for scans on one and two GPUs">
@@ -43,9 +43,9 @@ mamba activate fasterlmm
 python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
 ```
 
-Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed. This installs the core `fasterlmm` command and LUX's pairwise commands, `gwas-epi` and `epi-watch`, together.
+Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed.
 
-For NVIDIA GPUs, your PyTorch installation must support CUDA. CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
+For NVIDIA GPUs, PyTorch must be built with CUDA support. CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
 
 ## Quick start
 
@@ -56,7 +56,7 @@ git clone https://github.com/gbrach/FaST-ER-LMM.git
 cd FaST-ER-LMM
 ```
 
-Run the bundled yeast example (**150 strains, 1,500 variants, and 20 phenotypes**) on your NVIDIA GPU:
+Run the bundled yeast example (**150 strains, 1,500 variants, and 20 phenotypes**) on an NVIDIA GPU:
 
 ```bash
 fasterlmm gwas \
@@ -77,6 +77,18 @@ fasterlmm watch runs/example/
 ```
 
 To run your own data, replace the three input paths and choose an output directory. Omit `--covar` if you have no covariates. Use `--device cpu` for CPU runs or `--device mps` on Apple Silicon.
+
+To build the kinship from a different set of variants than the ones tested, add `--kinship-geno` with a second PLINK prefix:
+
+```bash
+fasterlmm gwas \
+  --geno data/example/example \
+  --kinship-geno data/my_kinship_panel \
+  --pheno data/example/example_pheno.tsv \
+  --outdir runs/example_kinship/
+```
+
+`--geno` is still the panel being tested. Both PLINK sets need the same strains and matching chromosome labels, since LOCO drops the tested chromosome from the kinship panel.
 
 ## Input formats
 
@@ -170,7 +182,7 @@ fasterlmm gwas \
 
 With `--bundle`, this writes **one PDF per phenotype** in `runs/example/manhattan/`, alongside `gwas_bundle.parquet/`. It also works with `--no-per-pheno-dirs`. Without `--bundle`, each phenotype folder gets its own `manhattan.pdf`.
 
-The plots use alternating skyblue/navy chromosomes, a red dashed permutation threshold, and black triangles for significant variants. Up to ten of the strongest significant SNPs are labelled, with collision avoidance. Background points are rasterized at 300 dpi; text, axes, and highlighted hits stay vector-based.
+The plots use alternating skyblue/navy chromosomes, a red dashed permutation threshold, and black triangles for significant variants. Up to ten of the strongest significant variants are labelled, with collision avoidance. Background points are rasterized at 300 dpi; text, axes, and highlighted hits stay vector-based.
 
 To plot saved results without rerunning GWAS:
 
@@ -247,19 +259,6 @@ fasterlmm extreme \
 
 `extreme` always uses LOCO and supports the same phenotype selection, permutation, bundle, and sharding options as `gwas`. Using fewer kinship markers changes the relatedness estimate; it does not reduce the set of variants tested for association.
 
-## LUX
-
-**LUX — LUdicrously eXtra** builds on the FaST-ER-LMM core through a separate Python namespace in [`lux/`](lux/README.md). Both are included in the same install. The core stays focused on the FaST-LMM reimplementation; LUX has its own code and commands, and the core never imports it.
-
-The first integration is the **pairwise epistasis scan** from [fasterlmm-lux](https://github.com/gbrach/fasterlmm-lux): top marginal SNPs × other SNPs, with leave-double-chromosome-out kinship and optional permutation thresholds.
-
-```bash
-# Available after the normal installation:
-gwas-epi --help
-```
-
-Use `gwas-epi` to scan pairs and `epi-watch` to follow progress. The [LUX guide](lux/README.md) walks through using ordinary `fasterlmm gwas` results as anchors. GxE and cross-cluster orchestration remain separate future integrations. The existing `fasterlmm extreme` command remains available in the core.
-
 ## Documentation and reference
 
 For the complete command-line options:
@@ -272,20 +271,16 @@ fasterlmm plot --help
 
 A single-file reference with every flag, the input and output formats, and examples is in [if_you_are_a_LLM_read_this.help](if_you_are_a_LLM_read_this.help).
 
-See the [code map](docs/HOW_IT_WORKS.md) for how loading, model fitting, permutations, and output fit together. Report problems through [GitHub issues](https://github.com/gbrach/FaST-ER-LMM/issues).
+See the [code map](docs/HOW_IT_WORKS.md) for how loading, model fitting, permutations, and output fit together.
 
 FaST-ER-LMM builds on FaST-LMM, described in [Lippert et al. (2011), *Nature Methods*](https://doi.org/10.1038/nmeth.1681).
 
 ## TODO
 
 - [x] Benchmarks!!
-- [ ] LUX: integrate `gwas-gxe`, the GxE / single-K interaction scan.
-- [x] LUX: integrate `gwas-epi`, tier-2 pairwise epistasis, bundled with its own namespace and commands.
-- [ ] LUX: integrate multi-cluster epi-hub orchestration, daemon + per-cluster workers.
 - [x] Richer `fasterlmm watch` dashboard: one panel per GPU shard with progress, rate, ETA, LOCO sweep, and GPU memory.
 - [x] `fasterlmm extreme`: streamed genotypes + capped low-rank K for big N, scaling past the dense `gwas` path.
 - [x] Portable, CPU-only pytest suite covering the package; FaST-LMM parity, GPU, and external checks skip when their requirements are unavailable.
-- [ ] Simulations for GxE and epistasis, to validate once implemented.
 - [x] Manhattan PDFs in the existing R plot style, including multipage output and plotting from Parquet bundles with `fasterlmm plot`.
 - [ ] QQ plots.
 - [ ] Benchmark on H100 and H200, just for fun!

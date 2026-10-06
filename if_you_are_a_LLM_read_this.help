@@ -1,7 +1,20 @@
 # FaST-ER-LMM reference
 
 Command-line reference for `fasterlmm`: every command, every option and examples.
-Version 1.3.1. Flag tables are taken from the argparse definitions of each command.
+Version 1.3.2. Flag tables are taken from the argparse definitions of each command.
+
+
+## Install
+
+Python 3.10+. Dependencies (numpy, scipy, pandas, pysnptools, torch, tqdm, rich, pyarrow, matplotlib) come with the package.
+
+```bash
+mamba create -n fasterlmm python=3.11 pip git -y
+mamba activate fasterlmm
+python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
+```
+
+From a clone: `pip install -e .` (add `.[test]` for pytest). The wheel installs the `fasterlmm` command. NVIDIA GPUs need a CUDA build of PyTorch; `--device cpu` and `--device mps` work without one. Check `python -c "import fasterlmm; print(fasterlmm.__file__)"` when an editable install might point at another checkout, the CLI runs whatever that path holds.
 
 
 ## Commands
@@ -13,7 +26,6 @@ Version 1.3.1. Flag tables are taken from the argparse definitions of each comma
 | `fasterlmm watch PATH` | Live terminal dashboard for a running job |
 | `fasterlmm concat OUTDIR` | Gather the bundle parts of a `--shard` array run |
 | `fasterlmm plot INPUT --manhattan` | Manhattan PDFs from saved results |
-| `gwas-epi`, `epi-watch` | Pairwise epistasis scan and its dashboard (separate `fasterlmm_lux` package, see lux/README.md) |
 
 
 ## Input formats
@@ -68,6 +80,27 @@ Behaviours:
 - `--kinship-geno PREFIX` builds the kinship from another panel. Under LOCO each tested chromosome is dropped from that panel, so the chromosome labels must match between the two PLINK sets (a missing label is an error).
 - `--phenos-per-job` sets how many phenotypes share one batch. The kinship eigendecomposition is genotype-only, so a bigger batch spreads it over more phenotypes; lower it to cut GPU memory.
 - `--dry-run` loads inputs and prints the planned work without scanning.
+
+## Separate kinship panel (--kinship-geno)
+
+Builds the kinship from a different PLINK set than the one tested (pruned panel, other variant type, a panel with more variants). `gwas` only; `extreme` has no such flag, its equivalent is `--grm`.
+
+```bash
+fasterlmm gwas --geno data/example/example --kinship-geno data/my_kinship_panel \
+  --pheno data/example/example_pheno.tsv --covar data/example/example_covar.tab \
+  --outdir runs/example_kinship/ --device cuda
+```
+
+Semantics:
+- `--geno` is the only panel tested. Output rows (and `sid_index`, `SNP`, `Chr`, `ChrPos`) describe `--geno` variants, never the kinship panel.
+- LOCO on (default): for tested chromosome c, K = GRM of every kinship-panel variant not on c. The tested panel does not enter K.
+- `--no-loco`: one K over all kinship-panel variants.
+- The kinship columns are standardised like the tested ones (per-variant mean 0, unit variance) before the GRM, in the scan and in the permutations (perm_threshold uses the same K).
+- Chromosome labels are compared as strings between the two sets. Under LOCO, any chromosome tested but absent from the kinship panel stops the run with `--kinship-geno has no variants on chrom(s) [...] that --geno tests`. Without LOCO the check is skipped.
+- Strains: intersection of geno, pheno, covar and kinship, common order taken from the intersection. Strains the kinship panel lacks are dropped, and stderr reports `kinship panel lacked K strains present in geno / pheno / covar, dropped`. No overlap at all raises `no strain overlap between geno / pheno / covar / kinship`.
+- Startup log line: `kinship panel: N=<strains> M=<variants>`.
+- Parity: omitting the flag leaves every code path unchanged (bit-for-bit fastlmm parity); passing the geno prefix itself as `--kinship-geno` reproduces the default scan exactly.
+- Python API: `read_plink(prefix)` for the panel, `align_inputs(geno, pheno, covar, dtype=..., kin=kin_genotypes)` returns `Z_kin`, `chrom_kin`, `n_dropped_kin`; scans take `Z_kin=` (and `chrom_kin=` for the LOCO ones, both or neither, else ValueError): `loco_scan`, `loco_scan_compat`, `single_k_scan`, `single_k_scan_compat`; `perm_threshold(data, ...)` reads them from the aligned dataset.
 
 ## extreme
 
@@ -182,3 +215,29 @@ Shared with `gwas`, `extreme` and `concat` (they accept `--manhattan` to plot du
 | `--label-top INT` | `10` | maximum significant SNP labels per plot (0 disables labels) |
 
 Style: alternating skyblue and navy chromosomes, red dashed permutation threshold, black triangles for significant variants, up to `--label-top` labelled hits. `--chrom-sizes` takes two whitespace-separated columns (chromosome, length) without a header, or a FASTA `.fai`; without it, chromosome widths are the largest observed position.
+
+
+## Which command and flags for which task
+
+| Task | Use |
+|---|---|
+| Standard GWAS, N up to a few thousand | `gwas`, defaults are fine |
+| Kinship from a different variant set | `gwas --kinship-geno PREFIX` |
+| Very large N, dense kinship does not fit | `extreme`, optionally `--grm PREFIX` |
+| Many phenotypes, several GPUs, one machine | `--device cuda` (auto-dispatch) |
+| Cluster array | `--shard X/N` + `--bundle`, then `fasterlmm concat OUTDIR` |
+| Quick input check without scanning | `--dry-run` (`gwas` only) |
+| Plots from saved results | `fasterlmm plot INPUT --manhattan` |
+| Follow a running job | `fasterlmm watch OUTDIR` from a second terminal |
+| No GPU | `--device cpu` (float64) or `--device mps` (Apple silicon, float32) |
+
+## Pitfalls
+
+- Join results on `SNP`, never `sid_index` (it restarts per LOCO fold).
+- Covariate file has no header; phenotype file must have the `Strain` header.
+- `gwas_bundle.parquet` is a directory, read it whole.
+- `--dry-run`, `--kinship-geno`, `--loco / --no-loco` exist on `gwas` only (extreme is always LOCO). `--grm`, `--grm-k`, `--block-size`, `--resident`, `--float64` exist on `extreme` only. Phenotype selection, permutation, bundle, shard, device and writer flags are shared.
+- Defaults baked in: seed 19930909, 100 permutations, RINT on, LOCO on, permutation quantile 0.05.
+- Scan math (single-K, LOCO, permutations) is locked to fastlmm parity: D = ncols(X), OLS regress-out, intercept column last, ML for h2, F-test p-value. Do not alter it without a parity check.
+- Not built yet: QQ plots, binary phenotypes.
+- `fasterlmm` resolves to whichever checkout the environment was installed from; verify with `fasterlmm.__file__`.
