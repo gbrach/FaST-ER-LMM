@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.0
 
 - Add LD clumping to `gwas`: `--clump` adds an `LDGroup` column (per-folder `gwas.tsv` and the bundle) with greedy per-phenotype groups of the variants under the permutation threshold, options `--clump-window-kb` (default 50), `--clump-r2` (default 0.5) and `--clump-p` (fixed cutoff instead of the threshold).
 
