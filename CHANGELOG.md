@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add LD clumping to `gwas`: `--clump` adds an `LDGroup` column (per-folder `gwas.tsv` and the bundle) with greedy per-phenotype groups of the variants under the permutation threshold, options `--clump-window-kb` (default 50), `--clump-r2` (default 0.5) and `--clump-p` (fixed cutoff instead of the threshold).
+
 ## 1.4.3
 
 - Seed the permutations of a phenotype with missing values on its column in the phenotype table, so its threshold no longer depends on which NA group it lands in. Tables without missing values are unchanged.

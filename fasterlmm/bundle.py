@@ -127,7 +127,7 @@ _GWAS_TSV_TYPES = {"sid_index": pa.int64(), "SNP": pa.string(), "Chr": pa.float6
                    "ChrPos": pa.float64(), "PValue": pa.float64(), "SnpWeight": pa.float64(),
                    "SnpWeightSE": pa.float64(), "EffectSize": pa.float64(), "SnpFractVarExpl": pa.float64(),
                    "Mixing": pa.float64(), "Nullh2": pa.float64(), "Pheno": pa.string(),
-                   "PhenoCount": pa.int64()}
+                   "PhenoCount": pa.int64(), "LDGroup": pa.int32()}
 
 
 

@@ -1,7 +1,7 @@
 # FaST-ER-LMM reference
 
 Command-line reference for `fasterlmm`: every command, every option and examples.
-Version 1.4.0. Flag tables are taken from the argparse definitions of each command.
+Version 1.4.3. Flag tables are taken from the argparse definitions of each command.
 
 ## Install
 
@@ -26,6 +26,19 @@ From a clone: `pip install -e .` (add `.[test]` for pytest). The wheel installs 
 | `fasterlmm concat OUTDIR` | Gather the bundle parts of a `--shard` array run |
 | `fasterlmm plot INPUT --manhattan` | Manhattan PDFs from saved results |
 
+
+## Recommended setup
+
+Default choice for many phenotypes:
+
+```bash
+fasterlmm gwas --geno PREFIX --pheno phen.tsv --covar cov.tab --outdir runs/out/ --bundle --no-per-pheno-dirs --clump
+```
+
+- RINT (Blom rank-based inverse normal transform) runs automatically on every phenotype, pass raw values. `pheno_rint.tsv` holds the transformed table. `--no-rint` only for values that are already normalised.
+- `--bundle --no-per-pheno-dirs`: one Parquet dataset instead of one folder per phenotype. `lambda_gc.tsv` is then the only lambda output.
+- `--clump` adds the `LDGroup` column to the bundle (or to each `gwas.tsv`), defaults 50 kb and r2 0.5.
+- NAs in the phenotype table are handled, see Missing phenotype values below.
 
 ## Input formats
 
@@ -71,6 +84,10 @@ Defaults worth knowing: LOCO on, rank-based inverse normal transform (Blom) of e
 | `--no-multi-gpu` |  | opt out of auto-dispatch when --device cuda sees more than one GPU |
 | `--bundle` |  | after scanning, bundle the per-pheno results into one parquet |
 | `--no-per-pheno-dirs` |  | skip the per-pheno output tree, write only the bundle parquet (needs --bundle) |
+| `--clump` |  | add an LDGroup column: per-phenotype greedy LD clumping of the variants under the perm threshold (or --clump-p), group 1 is the most significant |
+| `--clump-window-kb INT` | `50` | max distance in kb between the index variant of a group and its members |
+| `--clump-r2 FLOAT` | `0.5` | r2 above which a variant joins the group of an index variant |
+| `--clump-p FLOAT` |  | fixed p-value cutoff for the variants that get a group, default is each phenotype's perm threshold |
 | `--dry-run` |  | load inputs, print the planned work (N/M/P, n_perm, shards, device), and exit before scanning |
 
 Behaviours:
@@ -79,6 +96,24 @@ Behaviours:
 - `--kinship-geno PREFIX` builds the kinship from another panel. Under LOCO each tested chromosome is dropped from that panel, so the chromosome labels must match between the two PLINK sets (a missing label is an error).
 - `--phenos-per-job` sets how many phenotypes share one batch. The kinship eigendecomposition is genotype-only, so a bigger batch spreads it over more phenotypes; lower it to cut GPU memory.
 - `--dry-run` loads inputs and prints the planned work without scanning.
+- `--clump` runs after each phenotype's scan, see LD clumping below. `gwas` only.
+
+## Missing phenotype values
+
+NAs (or empty cells) in the phenotype table are allowed. Phenotypes with the same missing strains are grouped by NA pattern, and each group is scanned on its own strain subset with one eigendecomposition per chromosome, so no strain is dropped except in the groups where it has no value. Same result as running fastlmm on each phenotype after removing its missing strains. A table without NAs takes the unchanged path. A phenotype that is entirely NA, or left with too few strains to fit, is skipped with a message. Permutations are seeded on the phenotype's column in the full table, so a threshold does not depend on its group. Many distinct patterns cost one decomposition each: on a 1,025 strain by 8,391 phenotype table with 411 patterns the scan took about twice as long as the same table without NAs (one V100S).
+
+## LD clumping (--clump)
+
+Adds an `LDGroup` column (nullable integer) per phenotype, to `gwas.tsv` and to the bundle.
+- Candidates are the variants with p <= the phenotype's permutation threshold, or `--clump-p` when given. Other variants stay empty.
+- Greedy: candidates are visited from the smallest p-value up. A candidate not yet grouped starts a new group (ids count from 1, so group 1 holds the top hit) and takes every ungrouped candidate on the same chromosome within `--clump-window-kb` with r2 >= `--clump-r2`.
+- r2 is computed from the standardised genotypes of all strains (missing calls set to the mean), so it does not depend on the phenotype or on the NA groups.
+- Ties in p-value resolve by variant order.
+
+```bash
+fasterlmm gwas --geno PREFIX --pheno phen.tsv --outdir runs/out/ --bundle --no-per-pheno-dirs \
+  --clump --clump-window-kb 100 --clump-r2 0.6
+```
 
 ## Separate kinship panel (--kinship-geno)
 
@@ -166,7 +201,7 @@ The outdir also holds `lambda_gc.tsv`, written on every run and the only lambda 
 
 With RINT on (default) the outdir also holds `pheno_rint.tsv`: the transformed phenotype table in the input layout (`Strain` column, then one column per phenotype, input strain order, missing values empty), covering every strain of the phenotype file before matching to the genotype. A `--shard` array writes it from task 0 only, `--no-rint` skips it. It can be passed back as `--pheno` together with `--no-rint` (values agree to float precision, about 1e-16).
 
-Result columns: `sid_index`, `SNP`, `Chr`, `GenDist`, `ChrPos`, `PValue`, `SnpWeight`, `SnpWeightSE`, `EffectSize`, `SnpFractVarExpl`, `Mixing`, `Nullh2`, `Pheno`, `PhenoCount`. The bundle adds `threshold` and `significant` (`PValue < threshold`).
+Result columns: `sid_index`, `SNP`, `Chr`, `GenDist`, `ChrPos`, `PValue`, `SnpWeight`, `SnpWeightSE`, `EffectSize`, `SnpFractVarExpl`, `Mixing`, `Nullh2`, `Pheno`, `PhenoCount`. The bundle adds `threshold` and `significant` (`PValue < threshold`). With `--clump` both `gwas.tsv` and the bundle also carry `LDGroup`.
 `sid_index` restarts per LOCO fold, so join results on `SNP`, not on `sid_index`.
 
 With `--bundle`, `gwas_bundle.parquet/` is a directory of Parquet parts (`gwas-results-part-00000.parquet`, shard runs prefix `shard0-`). Several phenotypes share a file; read the whole directory.
@@ -242,6 +277,8 @@ Style: alternating skyblue and navy chromosomes, red dashed permutation threshol
 |---|---|
 | Standard GWAS, N up to a few thousand | `gwas`, defaults are fine |
 | Kinship from a different variant set | `gwas --kinship-geno PREFIX` |
+| Group the significant variants by LD per phenotype | `gwas --clump` (`--clump-window-kb`, `--clump-r2`, `--clump-p`) |
+| Phenotype table with missing values | nothing, NAs are grouped by pattern automatically |
 | Very large N, dense kinship does not fit | `extreme`, optionally `--grm PREFIX` |
 | Many phenotypes, several GPUs, one machine | `--device cuda` (auto-dispatch) |
 | Cluster array | `--shard X/N` + `--bundle`, then `fasterlmm concat OUTDIR` |
@@ -255,6 +292,7 @@ Style: alternating skyblue and navy chromosomes, red dashed permutation threshol
 - Join results on `SNP`, never `sid_index` (it restarts per LOCO fold).
 - Covariate file has no header; phenotype file must have the `Strain` header.
 - `gwas_bundle.parquet` is a directory, read it whole.
+- `--clump` and its options exist on `gwas` only, and need results under the cutoff to produce any group.
 - `--dry-run`, `--kinship-geno`, `--loco / --no-loco` exist on `gwas` only (extreme is always LOCO). `--grm`, `--grm-k`, `--block-size`, `--resident`, `--float64` exist on `extreme` only. Phenotype selection, permutation, bundle, shard, device and writer flags are shared.
 - Defaults baked in: seed 19930909, 100 permutations, RINT on, LOCO on, permutation quantile 0.05.
 - Scan math (single-K, LOCO, permutations) is locked to fastlmm parity: D = ncols(X), OLS regress-out, intercept column last, ML for h2, F-test p-value. Do not alter it without a parity check.

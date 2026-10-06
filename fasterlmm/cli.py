@@ -31,7 +31,9 @@ import torch
 from fasterlmm import runinfo
 from fasterlmm.inflation import lambda_gc, merge_shard_tables, write_shard_table
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
-from fasterlmm.io import align_inputs, group_by_na, read_covar, read_phen, read_plink, subset_dataset
+from fasterlmm.clump import ld_clump
+from fasterlmm.io import (align_inputs, group_by_na, read_covar, read_phen, read_plink, standardise_columns,
+                          subset_dataset)
 from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
@@ -138,13 +140,19 @@ def _write_pheno(ctx: dict, outdir_str: str, pheno_name: str, p_col, beta_col, s
             "Pheno": pa.DictionaryArray.from_arrays(ctx["pheno_idx"], [pheno_name]),
             "PhenoCount": ctx["phenocount"], "threshold": np.full(len(p_col), thresh),
             "significant": p_col < thresh}
+    clump = ctx.get("clump")
+    if clump is not None:
+        # LDGroup is null for variants that are not clumped, the cutoff is the perm threshold unless --clump-p fixes it
+        ld = ld_clump(clump["z"], ctx["chrom"], ctx["pos"], p_col,
+                      thresh if clump["p"] is None else clump["p"], clump["window_bp"], clump["r2"])
+        cols["LDGroup"] = pa.array(ld, mask = ld == 0)
     table = pa.table(cols).sort_by([("PValue", "ascending")])
     if per_pheno_dirs:
         sub = Path(outdir_str) / pheno_name
         sub.mkdir(parents = True, exist_ok = True)
-        # gwas.tsv stays the bare 14-column fastlmm schema -- threshold + significance keep out of it,
-        # they live in threshold.txt next to it instead
-        _write_tsv(table.select(list(cols)[:-2]), sub / "gwas.tsv")
+        # gwas.tsv stays the bare 14-column fastlmm schema (plus LDGroup when clumping is on) -- threshold +
+        # significance keep out of it, they live in threshold.txt next to it instead
+        _write_tsv(table.select(list(cols)[:14] + (["LDGroup"] if clump is not None else [])), sub / "gwas.tsv")
         _write_tsv(pa.table({"perm_min_p": perm_min_p}), sub / "perms.tsv")
         (sub / "threshold.txt").write_text(f"{thresh:.6e}\n")
         if bundle_writer is None:  # with --bundle the summary lambda_gc.tsv is the only lambda output
@@ -233,6 +241,11 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
                       "sid_index": np.arange(M, dtype = np.int64), "gendist": pa.nulls(M, pa.float64()),
                       "mixing": np.zeros(M), "phenocount": np.full(M, 1 + args.n_perm),
                       "pheno_idx": pa.array(np.zeros(M, dtype = np.int32)), "lambda_rows": []}
+        if args.clump:
+            # LD is computed on every strain, standardised once here, float32 is plenty for an r2 cutoff
+            writer_ctx["clump"] = {"z": standardise_columns(data.Z).numpy().astype(np.float32),
+                                   "window_bp": args.clump_window_kb * 1000.0, "r2": args.clump_r2,
+                                   "p": args.clump_p}
         # one bundle writer per scan process -- a sharded run streams to .bundle_parts/shard{i}.parquet
         # and the parent concats them, an unsharded run streams straight to the final bundle
         if args.bundle:
@@ -496,6 +509,16 @@ def main() -> None:
     parser.add_argument("--n-perm", type = int, default = 100, help = "permutation count for the threshold")
     parser.add_argument("--perm-quantile", type = float, default = 0.05,
                         help = "quantile of per-perm min-p used " "as the genome-wide threshold (default 0.05)")
+    parser.add_argument("--clump", action = "store_true",
+                        help = "add an LDGroup column: greedy LD clumping per phenotype of the variants under the "
+                        "perm threshold (or --clump-p), group 1 is the most significant")
+    parser.add_argument("--clump-window-kb", type = int, default = 50,
+                        help = "max distance in kb between a group index and its members (default 50)")
+    parser.add_argument("--clump-r2", type = float, default = 0.5,
+                        help = "r2 above which a variant joins the group of an index variant (default 0.5)")
+    parser.add_argument("--clump-p", type = float, default = None,
+                        help = "fixed p-value cutoff for the variants that get a group, default is each "
+                        "phenotype's perm threshold")
     parser.add_argument("--phenos-per-job", type = int, default = 256, help = "real phenos packed into one gpu "
                         "scan, gpu cols = this x (1 + n_perm). bigger amortizes the per-chromosome "
                         "eigendecomposition over more phenos, smaller trims gpu memory")

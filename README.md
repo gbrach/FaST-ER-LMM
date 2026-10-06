@@ -92,6 +92,24 @@ fasterlmm gwas \
 
 `--geno` is still the panel being tested. Both PLINK sets need the same strains and matching chromosome labels, since LOCO drops the tested chromosome from the kinship panel.
 
+## Recommended setup
+
+For a typical run over many phenotypes:
+
+```bash
+fasterlmm gwas \
+  --geno data/example/example \
+  --pheno data/example/example_pheno.tsv \
+  --covar data/example/example_covar.tab \
+  --outdir runs/example/ \
+  --bundle --no-per-pheno-dirs --clump
+```
+
+- Rank-based inverse normal transform (RINT) is applied automatically to every phenotype, so raw values go in as they are. `pheno_rint.tsv` in the output directory holds the transformed table. Use `--no-rint` only for phenotypes that are already normalised.
+- `--bundle --no-per-pheno-dirs` writes one Parquet dataset in place of one folder per phenotype, which matters at thousands of phenotypes. `lambda_gc.tsv` holds the inflation factors in that mode.
+- `--clump` adds an `LDGroup` column to the bundle, so the significant variants of each phenotype come already grouped by LD (defaults: 50 kb window, r2 0.5).
+- Missing values in the phenotype table are fine: phenotypes sharing the same missing strains are scanned together on their own strain subset.
+
 ## Input formats
 
 | Input | Expected format |
@@ -119,6 +137,10 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 |---|---|
 | `--n-perm 1000` | Run 1,000 permutations per phenotype; default: 100. |
 | `--perm-quantile 0.05` | Set the quantile of permutation minimum p-values used as the significance threshold; default: 0.05. |
+| `--clump` | Add an `LDGroup` column: per phenotype, greedy LD clumping of the variants under the permutation threshold. |
+| `--clump-window-kb 50` | Maximum distance in kb between the index variant of a group and its members; default: 50. |
+| `--clump-r2 0.5` | r2 above which a variant joins the group of an index variant; default: 0.5. |
+| `--clump-p 1e-5` | Fixed p-value cutoff for the variants that get a group, instead of each phenotype's permutation threshold. |
 | `--no-rint` | Use phenotype values without the default rank-based inverse normal transform. |
 | `--no-loco` | Use a shared relatedness model across chromosomes (`gwas` only). |
 | `--phenos-per-job 32` | Set how many phenotypes are processed per batch; lower this to reduce batch memory use. |
@@ -156,6 +178,8 @@ Each phenotype gets:
 | `perms.tsv` | The minimum genome-wide p-value from each permutation. |
 | `threshold.txt` | The significance threshold: the 5th percentile of permutation minimum p-values by default. |
 | `lambda_gc.txt` | Genomic inflation factor (lambda GC) of the phenotype, written only without `--bundle`. |
+
+With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants under the cutoff get a group, the rest stay empty. Variants are visited from the smallest p-value up: each one not yet grouped starts a new group (numbered from 1, so group 1 holds the top hit) and takes every ungrouped candidate on its chromosome within the window with r2 at or above the threshold. r2 is computed from the standardised genotypes of all strains, so it does not depend on the phenotype.
 
 The combined bundle adds `threshold` and `significant` columns. A variant is marked significant when its p-value is below its phenotype's threshold.
 
