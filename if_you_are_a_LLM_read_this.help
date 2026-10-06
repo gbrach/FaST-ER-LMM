@@ -3,7 +3,6 @@
 Command-line reference for `fasterlmm`: every command, every option and examples.
 Version 1.3.2. Flag tables are taken from the argparse definitions of each command.
 
-
 ## Install
 
 Python 3.10+. Dependencies (numpy, scipy, pandas, pysnptools, torch, tqdm, rich, pyarrow, matplotlib) come with the package.
@@ -101,6 +100,21 @@ Semantics:
 - Startup log line: `kinship panel: N=<strains> M=<variants>`.
 - Parity: omitting the flag leaves every code path unchanged (bit-for-bit fastlmm parity); passing the geno prefix itself as `--kinship-geno` reproduces the default scan exactly.
 - Python API: `read_plink(prefix)` for the panel, `align_inputs(geno, pheno, covar, dtype=..., kin=kin_genotypes)` returns `Z_kin`, `chrom_kin`, `n_dropped_kin`; scans take `Z_kin=` (and `chrom_kin=` for the LOCO ones, both or neither, else ValueError): `loco_scan`, `loco_scan_compat`, `single_k_scan`, `single_k_scan_compat`; `perm_threshold(data, ...)` reads them from the aligned dataset.
+
+## Run record (reproducibility)
+
+Every `gwas` and `extreme` run writes, next to the results in `--outdir`:
+
+| File | Contents |
+|---|---|
+| `run_info.json` | Command line exactly as typed, working directory, start time, every resolved argument (defaults included), input files (role, path, absolute path, size, modification time) for the PLINK triples, phenotype, covariate and kinship files, versions (FaST-ER-LMM, git commit when run from a clone, Python, torch, CUDA, numpy, pyarrow), host (hostname, visible CPUs and GPUs, Slurm job variables), then after loading N, M, phenotype counts, dropped kinship strains, device and GPU model, and at the end `state`, `wall_s` and the bundle path |
+| `run.log` | Text log: the command and everything printed on stdout and stderr. Reruns into the same directory append |
+
+- Sharded runs (`--shard X/N`) write `run_info.shardX.json` and `run.shardX.log`, so parallel tasks never overwrite each other.
+- An auto-dispatched multi-GPU run writes the full `run_info.json` and `run.log` from the parent, plus `run_info.shardI.json` and `run.shardI.log` per GPU worker (data shape, GPU model, wall time).
+- Input files are recorded by size and modification time, never hashed, so large genotypes cost nothing.
+- Unlike `status.json`, which is a live progress file overwritten with a short "done" record at the end, the run record is kept.
+- `fasterlmm concat` leaves these files alone.
 
 ## extreme
 

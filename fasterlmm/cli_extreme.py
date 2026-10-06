@@ -28,6 +28,7 @@ import pyarrow as pa
 import scipy.stats as ss
 import torch
 
+from fasterlmm import runinfo
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.cli import _default_write_workers, _drain_done, _parse_shard, _resource_stats, _write_pheno
 from fasterlmm.extreme_scan import loco_scan_resident, loco_scan_streamed
@@ -258,6 +259,9 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
                    "started_at": started_at, "chroms_total": n_chroms, "k_grm": int(G.shape[1]),
                    "resident": resident}
     write_status(status_file, {**status_base, "phenos_done": 0, "elapsed_s": 0.0, **_resource_stats(device)})
+    runinfo.update(outdir, shard_i, N = N, M = M, P_total = Y.shape[1], P_this_task = len(pheno_list),
+                   k_grm = int(G.shape[1]), resident = resident, device = device, gpu = runinfo.gpu_name(device),
+                   dtype = status_base["dtype"])
 
     done = 0
     write_futures: list = []
@@ -325,6 +329,7 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
     write_status(status_file,
                  {**status_base, "state": "done", "phenos_done": len(pheno_list),
                   "elapsed_s": time.time() - started_at, **_resource_stats(device)})
+    runinfo.update(outdir, shard_i, state = "done", wall_s = round(time.time() - started_at, 1))
 
 
 # COMMAND LINE -------
@@ -339,6 +344,7 @@ def _shard_entrypoint(rank: int, n_gpu: int, args_dict: dict) -> None:
     """
     os.environ["CUDA_VISIBLE_DEVICES"] = str(rank)
     args = argparse.Namespace(**args_dict)
+    runinfo.begin_worker(args, "extreme", rank)
     _run_extreme(args, shard_i = rank, shard_n = n_gpu, device = "cuda:0")
 
 
@@ -398,6 +404,7 @@ def main() -> None:
     validate_scan_arguments(parser, args)
     if not args.per_pheno_dirs and not args.bundle:
         parser.error("--no-per-pheno-dirs needs --bundle, otherwise nothing gets written")
+    runinfo.begin(args, "extreme", _parse_shard(args.shard)[0] if args.shard else None)
 
     # clear a stale parts dir up front, only the orchestrator does this (a --shard array task would race)
     if args.bundle and args.shard is None:
@@ -464,6 +471,7 @@ def main() -> None:
         except (OSError, ValueError):
             pass
         write_status(str(status_path), {**existing, **final})
+        runinfo.update(args.outdir, None, state = "done", n_gpu = final["n_gpu"], bundle = final.get("bundle"))
 
         if auto_dispatch and args.bundle and args.manhattan:
             from fasterlmm.plot import plot_results

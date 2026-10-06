@@ -45,7 +45,9 @@ python -m pip install git+https://github.com/gbrach/FaST-ER-LMM.git
 
 Mamba creates the environment; pip installs FaST-ER-LMM from GitHub. No Conda channel package is needed.
 
-For NVIDIA GPUs, PyTorch must be built with CUDA support. CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
+**GPU users, check this right after installing.** `python -c "import torch; print(torch.cuda.is_available())"` must print `True`. A `False` usually means a CPU-only PyTorch, which happens when conda-forge sits ahead of `pytorch` and `nvidia` in the channel list (`conda config --show channels`). Put `pytorch` and `nvidia` first, or install PyTorch with pip, then reinstall.
+
+CPU runs work with `--device cpu`; Apple Silicon runs use `--device mps`.
 
 ## Quick start
 
@@ -138,6 +140,8 @@ runs/example/
 │   └── gwas-results-part-00000.parquet
 ├── manhattan/
 │   └── <phenotype>.pdf
+├── run_info.json
+├── run.log
 └── status.json
 ```
 
@@ -164,6 +168,8 @@ print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
 Despite its suffix, `gwas_bundle.parquet` is a **directory of Parquet parts**. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
 
 Parts are named `gwas-results-part-00000.parquet`, `gwas-results-part-00001.parquet`, and so on. Gathered GPU or cluster shards add a prefix, such as `shard0-gwas-results-part-00000.parquet`. Each file can contain several phenotypes; read the whole directory to load all results.
+
+Every run also records how it was made. `run_info.json` holds the exact command line, all resolved options (defaults included), the input files with their sizes and modification times, software versions, the host and GPU, and the final outcome. `run.log` keeps everything printed during the run. Sharded runs write `run_info.shardX.json` and `run.shardX.log` per task. Keep these files with the results to reproduce a run; `status.json` only tracks live progress and is reduced to a short record when the run ends.
 
 Progress is stored in `status.json`, or `status.shard*.json` for sharded runs, and displayed by `fasterlmm watch`.
 

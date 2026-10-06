@@ -2,6 +2,8 @@
 
 ## 1.3.2
 
+- Write a run record next to every `gwas` and `extreme` result: `run_info.json` (command line, resolved options, input files with size and modification time, versions, host, GPU, outcome) and `run.log` (stdout and stderr); sharded runs write `run_info.shardX.json` and `run.shardX.log`.
+- Add a GPU check to the README install section.
 - Document the `--kinship-geno PREFIX` option of `gwas` (kinship from a second PLINK panel, `--geno` stays the tested panel) in the README and the command-line reference.
 
 ## 1.3.1

@@ -28,6 +28,7 @@ import pyarrow.csv as pacsv
 import scipy.stats as ss
 import torch
 
+from fasterlmm import runinfo
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.io import align_inputs, read_covar, read_phen, read_plink
 from fasterlmm.normalize import rint_columns
@@ -271,6 +272,9 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
                    "loco": args.loco, "phenos_total": len(pheno_list), "pid": os.getpid(),
                    "started_at": started_at, "chroms_total": n_chroms if args.loco else None}
     write_status(status_file, {**status_base, "phenos_done": 0, "elapsed_s": 0.0, **_resource_stats(device)})
+    runinfo.update(outdir, shard_i, N = data.Y.shape[0], M = data.Z.shape[1], P_total = data.Y.shape[1],
+                   P_this_task = len(pheno_list), n_dropped_kin = data.n_dropped_kin if kin is not None else None,
+                   device = device, gpu = runinfo.gpu_name(device), dtype = status_base["dtype"])
 
     if args.dry_run:
         # dry-run lives here (after load + slice, before per-pheno work) so the printed numbers reflect what
@@ -281,6 +285,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
               f"device={device} dtype={str(dtype).replace('torch.', '')} "
               f"shard={shard_str} perm_quantile={args.perm_quantile}", flush = True)
         write_status(status_file, {"state": "dry-run", "phenos_total": len(pheno_list), "shard": shard_str})
+        runinfo.update(outdir, shard_i, state = "dry-run")
         return
 
     N, C = data.X.shape
@@ -402,6 +407,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
     write_status(status_file,
                  {**status_base, "state": "done", "phenos_done": len(pheno_list),
                   "elapsed_s": time.time() - started_at, **_resource_stats(device)})
+    runinfo.update(outdir, shard_i, state = "done", wall_s = round(time.time() - started_at, 1))
 
 
 # COMMAND LINE -------
@@ -418,6 +424,7 @@ def _shard_entrypoint(rank: int, n_gpu: int, args_dict: dict) -> None:
     """
     os.environ["CUDA_VISIBLE_DEVICES"] = str(rank)
     args = argparse.Namespace(**args_dict)
+    runinfo.begin_worker(args, "gwas", rank)
     _run_scan(args, shard_i = rank, shard_n = n_gpu, device = "cuda:0")
 
 
@@ -479,6 +486,7 @@ def main() -> None:
     validate_scan_arguments(parser, args)
     if not args.per_pheno_dirs and not args.bundle:
         parser.error("--no-per-pheno-dirs needs --bundle, otherwise nothing gets written")
+    runinfo.begin(args, "gwas", _parse_shard(args.shard)[0] if args.shard else None)
 
     # a stale .bundle_parts from an earlier run would get swept into this run's bundle, so clear it
     # up front -- only the orchestrator does this, never a --shard array task (they'd race)
@@ -558,6 +566,7 @@ def main() -> None:
                 # single-worker run streamed straight to the final bundle, nothing left to do
                 final["bundle"] = str(outdir / BUNDLE_FILENAME)
         write_status(str(Path(args.outdir) / "status.json"), final)
+        runinfo.update(args.outdir, None, state = "done", n_gpu = final["n_gpu"], bundle = final.get("bundle"))
 
         if auto_dispatch and args.bundle and args.manhattan and not args.dry_run:
             from fasterlmm.plot import plot_results
