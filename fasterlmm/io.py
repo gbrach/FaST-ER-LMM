@@ -164,6 +164,40 @@ def align_inputs(geno: Genotypes, pheno: Phenotypes, covar: Covariates | None = 
                           chrom_kin = kin.chrom if kin is not None else None, n_dropped_kin = n_dropped_kin)
 
 
+def group_by_na(Y: Tensor, cols: list[int]) -> list[tuple[list[int], list[int]]]:
+    """
+    Groups phenotype columns by their NA pattern
+    Returns (keep_rows, cols) per distinct pattern, keep_rows are the strains with a value in every column of the group
+    Phenotypes sharing a pattern share the strain subset, so they can share one eigendecomposition per chromosome
+    Columns that are entirely NA come back with an empty keep_rows, the caller skips them
+    No NA anywhere gives one group over every strain, in the input column order
+    """
+    mask = torch.isnan(Y[:, cols]).cpu().numpy()  # (N, P)
+    groups: dict[bytes, list[int]] = {}
+    for j, c in enumerate(cols):
+        groups.setdefault(np.packbits(mask[:, j]).tobytes(), []).append(j)
+    out = []
+    for js in groups.values():
+        keep = np.flatnonzero(~mask[:, js[0]]).tolist()
+        out.append((keep, [cols[j] for j in js]))
+    return out
+
+
+def subset_dataset(data: AlignedDataset, rows: list[int],
+                   cols: list[int]) -> AlignedDataset:
+    """
+    Slices an aligned dataset down to a strain subset and a phenotype subset
+    Z and Z_kin keep their raw missing calls, standardising happens later per subset as fastlmm does on its own subset
+    The tensors stay on whatever device the input lives on
+    """
+    r = torch.as_tensor(rows, dtype = torch.long, device = data.Z.device)
+    return AlignedDataset(iid = [data.iid[i] for i in rows], Z = data.Z[r], Y = data.Y[r][:, cols], X = data.X[r],
+                          chrom = data.chrom, pos = data.pos, snp_id = data.snp_id,
+                          pheno_names = [data.pheno_names[c] for c in cols],
+                          Z_kin = data.Z_kin[r] if data.Z_kin is not None else None,
+                          chrom_kin = data.chrom_kin, n_dropped_kin = data.n_dropped_kin)
+
+
 # STANDARDISING -------
 
 def standardise_columns(arr: np.ndarray | Tensor) -> np.ndarray | Tensor:

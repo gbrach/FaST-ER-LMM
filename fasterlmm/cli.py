@@ -30,7 +30,7 @@ import torch
 
 from fasterlmm import runinfo
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
-from fasterlmm.io import align_inputs, read_covar, read_phen, read_plink
+from fasterlmm.io import align_inputs, group_by_na, read_covar, read_phen, read_plink, subset_dataset
 from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
@@ -292,15 +292,42 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         runinfo.update(outdir, shard_i, state = "dry-run")
         return
 
-    N, C = data.X.shape
-    df2 = N - C - 1
+    C = data.X.shape[1]
+
+    def _work():
+        """
+        Yields (dataset, batch, g_var, df2) per scan batch
+        No NA in the phenos is the plain path, one dataset over every strain, g_var as built at load
+        With NAs the phenos are grouped by NA pattern and each group scans on its own strain subset, so one
+        eigendecomposition per chromosome is shared by the whole group and no strain is dropped anywhere else
+        Subsets are built lazily, one at a time, a full copy of Z per group would not fit in memory
+        """
+        step = args.phenos_per_job
+        if not torch.isnan(data.Y[:, pheno_list]).any():
+            for b in range(0, len(pheno_list), step):
+                yield data, pheno_list[b:b + step], writer_ctx.get("g_var"), data.X.shape[0] - C - 1
+            return
+        groups = group_by_na(data.Y, pheno_list)
+        print(f"{log_prefix}NAs in the phenos, {len(groups)} distinct NA patterns over {len(pheno_list)} phenos, "
+              f"one eigendecomposition per pattern", file = sys.stderr, flush = True)
+        for keep, cols in groups:
+            df2_g = len(keep) - C - 1
+            if df2_g < 1:
+                print(f"{log_prefix}skipping {len(cols)} phenos with only {len(keep)} strains left "
+                      f"(first: {data.pheno_names[cols[0]]})", file = sys.stderr, flush = True)
+                continue
+            sub = subset_dataset(data, keep, cols)
+            g_var = np.nanvar(sub.Z.cpu().numpy(), axis = 0)
+            for b in range(0, len(cols), step):
+                yield sub, list(range(b, min(b + step, len(cols)))), g_var, df2_g
+
     # phenos go through the scan in batches -- a whole batch (reals + every perm column) shares one
     # per-chromosome eigendecomposition, so the eigh is paid once per batch instead of once per pheno
     done = 0
     write_futures: list = []
     try:
-        for b_start in range(0, len(pheno_list), args.phenos_per_job):
-            batch = pheno_list[b_start:b_start + args.phenos_per_job]
+        for data_g, batch, g_var, df2 in _work():
+            b_start = done
             B = len(batch)
 
             def _on_chrom(k, n, _done = done, _b = B):
@@ -317,7 +344,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
                               "writes_pending": pending, **_resource_stats(device)})
 
             t_batch = time.time()
-            res, perm_max_F = perm_threshold(data, batch, n_perm = args.n_perm, seed = args.seed,
+            res, perm_max_F = perm_threshold(data_g, batch, n_perm = args.n_perm, seed = args.seed,
                                              loco = args.loco, on_chrom = _on_chrom if args.loco else None)
             # F -> p once for the whole batch, scipy on cpu is fine.  F itself is not written --
             # fastlmm's schema carries SnpWeight / SnpWeightSE and F is recoverable from them
@@ -328,14 +355,14 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
             sfve_np = res.sfve.cpu().numpy()
             nullh2_np = res.nullh2.cpu().numpy()
             # raw pheno variance, post-RINT as the lmm saw it, for the EffectSize column (ddof=0)
-            p_var = data.Y[:, batch].cpu().numpy().var(axis = 0)  # (B,)
+            p_var = data_g.Y[:, batch].cpu().numpy().var(axis = 0)  # (B,)
 
             # handing each pheno's output files to the writer pool -- the gpu starts the next batch's
             # scan while these csv writes run, and within a batch the writes spread over workers.
             # the result columns go by keyword, five look-alike float arrays are easy to transpose
             for j, p in enumerate(batch):
-                write_futures.append(writer_pool.submit(_write_pheno, writer_ctx, str(outdir),
-                                                        data.pheno_names[p], p_col = p_real[:, j],
+                write_futures.append(writer_pool.submit(_write_pheno, {**writer_ctx, "g_var": g_var}, str(outdir),
+                                                        data_g.pheno_names[p], p_col = p_real[:, j],
                                                         beta_col = beta_np[:, j], se_col = se_np[:, j],
                                                         sfve_col = sfve_np[:, j],
                                                         nullh2_col = nullh2_np[:, j], p_var = float(p_var[j]),

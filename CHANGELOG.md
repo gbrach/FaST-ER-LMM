@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Allow missing values in the phenotype table of `gwas`. Phenotypes are grouped by NA pattern and each group scans on its own strain subset with one eigendecomposition per chromosome; a table without missing values is unchanged. Previously one NA turned every result of that phenotype into NA.
+
 ## 1.3.2
 
 - Write a run record next to every `gwas` and `extreme` result: `run_info.json` (command line, resolved options, input files with size and modification time, versions, host, GPU, outcome) and `run.log` (stdout and stderr); sharded runs write `run_info.shardX.json` and `run.shardX.log`.
