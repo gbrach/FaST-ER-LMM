@@ -137,9 +137,9 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 |---|---|
 | `--n-perm 1000` | Run 1,000 permutations per phenotype; default: 100. |
 | `--perm-quantile 0.05` | Set the quantile of permutation minimum p-values used as the significance threshold; default: 0.05. |
-| `--clump` | Add an `LDGroup` column: per phenotype, greedy LD clumping of the variants under the permutation threshold. |
-| `--clump-window-kb 50` | Maximum distance in kb between the index variant of a group and its members; default: 50. |
-| `--clump-r2 0.5` | r2 above which a variant joins the group of an index variant; default: 0.5. |
+| `--clump` | Add an `LDGroup` column: per phenotype, LD groups (connected components) of the variants under the permutation threshold. |
+| `--clump-window-kb 50` | Maximum distance in kb between two variants for them to be linked in the same group; default: 50. |
+| `--clump-r2 0.5` | r2 at or above which two variants are linked in the same group; default: 0.5. |
 | `--clump-p 1e-5` | Fixed p-value cutoff for the variants that get a group, instead of each phenotype's permutation threshold. |
 | `--no-rint` | Use phenotype values without the default rank-based inverse normal transform. |
 | `--no-loco` | Use a shared relatedness model across chromosomes (`gwas` only). |
@@ -179,7 +179,7 @@ Each phenotype gets:
 | `threshold.txt` | The significance threshold: the 5th percentile of permutation minimum p-values by default. |
 | `lambda_gc.txt` | Genomic inflation factor (lambda GC) of the phenotype, written only without `--bundle`. |
 
-With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants under the cutoff get a group, the rest stay empty. Variants are visited from the smallest p-value up: each one not yet grouped starts a new group (numbered from 1, so group 1 holds the top hit) and takes every ungrouped candidate on its chromosome within the window with r2 at or above the threshold. r2 is computed from the standardised genotypes of all strains, so it does not depend on the phenotype.
+With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants under the cutoff get a group, the rest stay empty. Two such variants are linked when they sit on the same chromosome, within the window, with r2 at or above the threshold, and a group is a connected component of those links, so it can chain past the window through intermediate variants. Groups are numbered from 1 by their smallest p-value, so group 1 holds the top hit. This is the same grouping as `addLinkageGroups.py` of the 1086 yeast genomes GWAS, without the plink call: r2 is computed from the standardised genotypes of all strains, so it does not depend on the phenotype. Missing calls sit at the mean there, where plink drops them pairwise, so r2 can differ slightly when calls are missing.
 
 The combined bundle adds `threshold` and `significant` columns. A variant is marked significant when its p-value is below its phenotype's threshold.
 

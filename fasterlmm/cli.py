@@ -510,12 +510,12 @@ def main() -> None:
     parser.add_argument("--perm-quantile", type = float, default = 0.05,
                         help = "quantile of per-perm min-p used " "as the genome-wide threshold (default 0.05)")
     parser.add_argument("--clump", action = "store_true",
-                        help = "add an LDGroup column: greedy LD clumping per phenotype of the variants under the "
-                        "perm threshold (or --clump-p), group 1 is the most significant")
+                        help = "add an LDGroup column: per phenotype, LD groups (connected components) of the variants under "
+                        "the perm threshold (or --clump-p), group 1 holds the most significant variant")
     parser.add_argument("--clump-window-kb", type = int, default = 50,
-                        help = "max distance in kb between a group index and its members (default 50)")
+                        help = "max distance in kb between two variants to be linked in the same group (default 50)")
     parser.add_argument("--clump-r2", type = float, default = 0.5,
-                        help = "r2 above which a variant joins the group of an index variant (default 0.5)")
+                        help = "r2 at or above which two variants are linked in the same group (default 0.5)")
     parser.add_argument("--clump-p", type = float, default = None,
                         help = "fixed p-value cutoff for the variants that get a group, default is each "
                         "phenotype's perm threshold")

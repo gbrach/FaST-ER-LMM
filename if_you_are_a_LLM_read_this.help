@@ -84,9 +84,9 @@ Defaults worth knowing: LOCO on, rank-based inverse normal transform (Blom) of e
 | `--no-multi-gpu` |  | opt out of auto-dispatch when --device cuda sees more than one GPU |
 | `--bundle` |  | after scanning, bundle the per-pheno results into one parquet |
 | `--no-per-pheno-dirs` |  | skip the per-pheno output tree, write only the bundle parquet (needs --bundle) |
-| `--clump` |  | add an LDGroup column: per-phenotype greedy LD clumping of the variants under the perm threshold (or --clump-p), group 1 is the most significant |
-| `--clump-window-kb INT` | `50` | max distance in kb between the index variant of a group and its members |
-| `--clump-r2 FLOAT` | `0.5` | r2 above which a variant joins the group of an index variant |
+| `--clump` |  | add an LDGroup column: per-phenotype LD groups (connected components) of the variants under the perm threshold (or --clump-p), group 1 holds the most significant variant |
+| `--clump-window-kb INT` | `50` | max distance in kb between two variants for them to be linked in the same group |
+| `--clump-r2 FLOAT` | `0.5` | r2 at or above which two variants are linked in the same group |
 | `--clump-p FLOAT` |  | fixed p-value cutoff for the variants that get a group, default is each phenotype's perm threshold |
 | `--dry-run` |  | load inputs, print the planned work (N/M/P, n_perm, shards, device), and exit before scanning |
 
@@ -106,8 +106,8 @@ NAs (or empty cells) in the phenotype table are allowed. Phenotypes with the sam
 
 Adds an `LDGroup` column (nullable integer) per phenotype, to `gwas.tsv` and to the bundle.
 - Candidates are the variants with p <= the phenotype's permutation threshold, or `--clump-p` when given. Other variants stay empty.
-- Greedy: candidates are visited from the smallest p-value up. A candidate not yet grouped starts a new group (ids count from 1, so group 1 holds the top hit) and takes every ungrouped candidate on the same chromosome within `--clump-window-kb` with r2 >= `--clump-r2`.
-- r2 is computed from the standardised genotypes of all strains (missing calls set to the mean), so it does not depend on the phenotype or on the NA groups.
+- Graph: two candidates are linked when they are on the same chromosome, at most `--clump-window-kb` apart, with r2 >= `--clump-r2`. A group is a connected component, so groups can chain past the window. Same grouping as addLinkageGroups.py of HaploTeam/1086YeastGenomes (it ran plink --r2 first, plink is not needed here). Ids count from 1 by each group's smallest p-value, so group 1 holds the top hit.
+- r2 is computed from the standardised genotypes of all strains (missing calls set to the mean, plink --r2 drops them pairwise, so values can differ slightly with missing calls), so it does not depend on the phenotype or on the NA groups.
 - Ties in p-value resolve by variant order.
 
 ```bash
