@@ -1,7 +1,7 @@
 # FaST-ER-LMM reference
 
 Command-line reference for `fasterlmm`: every command, every option and examples.
-Version 1.3.2. Flag tables are taken from the argparse definitions of each command.
+Version 1.4.0. Flag tables are taken from the argparse definitions of each command.
 
 ## Install
 
@@ -160,6 +160,9 @@ Per phenotype directory under the outdir (skipped with `--no-per-pheno-dirs`):
 | `gwas.tsv` | Per-variant results sorted by p-value, FaST-LMM `single_snp` column format |
 | `perms.tsv` | Minimum genome-wide p-value of each permutation |
 | `threshold.txt` | Significance threshold |
+| `lambda_gc.txt` | Genomic inflation factor of the phenotype |
+
+The outdir also holds `lambda_gc.tsv` (also with `--no-per-pheno-dirs`): columns `Pheno`, `PhenoIndex` (0-based phenotype column), `LambdaGC`, `NVariants`, in phenotype column order. LambdaGC = median(qchisq(1 - PValue, 1)) / qchisq(0.5, 1) over the non-missing `PValue`s of the real phenotype (not the permutations), the definition of HaploTeam/1086YeastGenomes GWAS/src/calc_GIF.R. With LOCO the p-values come from the per-chromosome kinships, one lambda per phenotype over all variants. A `--shard` array writes `lambda_gc.shardX.tsv` per task and `fasterlmm concat` merges them into `lambda_gc.tsv`.
 
 With RINT on (default) the outdir also holds `pheno_rint.tsv`: the transformed phenotype table in the input layout (`Strain` column, then one column per phenotype, input strain order, missing values empty), covering every strain of the phenotype file before matching to the genotype. A `--shard` array writes it from task 0 only, `--no-rint` skips it. It can be passed back as `--pheno` together with `--no-rint` (values agree to float precision, about 1e-16).
 

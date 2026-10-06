@@ -29,6 +29,7 @@ import scipy.stats as ss
 import torch
 
 from fasterlmm import runinfo
+from fasterlmm.inflation import lambda_gc, merge_shard_tables, write_shard_table
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.io import align_inputs, group_by_na, read_covar, read_phen, read_plink, subset_dataset
 from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
@@ -124,6 +125,8 @@ def _write_pheno(ctx: dict, outdir_str: str, pheno_name: str, p_col, beta_col, s
     the handful of columns that change
     """
     thresh = float(np.quantile(perm_min_p, perm_quantile))
+    lam, n_var = lambda_gc(p_col)  # genomic inflation factor from the real-phenotype p-values
+    ctx["lambda_rows"].append((pheno_name, lam, n_var))  # list.append is atomic, the list is shared by every writer thread
     # EffectSize = beta^2 * var(genotype) / var(pheno), fastlmm single_snp.py:1454
     effect_size = beta_col * beta_col * ctx["g_var"] / p_var
     # Pheno is one repeated string -- dictionary-encode it so the table build stays O(1) on it
@@ -144,6 +147,7 @@ def _write_pheno(ctx: dict, outdir_str: str, pheno_name: str, p_col, beta_col, s
         _write_tsv(table.select(list(cols)[:-2]), sub / "gwas.tsv")
         _write_tsv(pa.table({"perm_min_p": perm_min_p}), sub / "perms.tsv")
         (sub / "threshold.txt").write_text(f"{thresh:.6e}\n")
+        (sub / "lambda_gc.txt").write_text(f"{lam:.6f}\n")
     if bundle_writer is not None:
         # appended straight into the streaming bundle, one row group, no per-pheno parquet on disk
         bundle_writer.append(table)
@@ -227,7 +231,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
                       "pos": data.pos, "g_var": np.nanvar(data.Z.cpu().numpy(), axis = 0),
                       "sid_index": np.arange(M, dtype = np.int64), "gendist": pa.nulls(M, pa.float64()),
                       "mixing": np.zeros(M), "phenocount": np.full(M, 1 + args.n_perm),
-                      "pheno_idx": pa.array(np.zeros(M, dtype = np.int32))}
+                      "pheno_idx": pa.array(np.zeros(M, dtype = np.int32)), "lambda_rows": []}
         # one bundle writer per scan process -- a sharded run streams to .bundle_parts/shard{i}.parquet
         # and the parent concats them, an unsharded run streams straight to the final bundle
         if args.bundle:
@@ -428,6 +432,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
     # every pheno is written -- close the streamed bundle so its .tmp gets renamed into place
     if bundle_writer is not None:
         bundle_writer.close()
+    write_shard_table(outdir, shard_i, writer_ctx["lambda_rows"], {n: i for i, n in enumerate(data.pheno_names)})
 
     if getattr(args, "manhattan", False):
         from fasterlmm.plot import plot_scan
@@ -597,6 +602,7 @@ def main() -> None:
                 # single-worker run streamed straight to the final bundle, nothing left to do
                 final["bundle"] = str(outdir / BUNDLE_FILENAME)
         write_status(str(Path(args.outdir) / "status.json"), final)
+        merge_shard_tables(args.outdir)
         runinfo.update(args.outdir, None, state = "done", n_gpu = final["n_gpu"], bundle = final.get("bundle"))
 
         if auto_dispatch and args.bundle and args.manhattan and not args.dry_run:

@@ -29,6 +29,7 @@ import scipy.stats as ss
 import torch
 
 from fasterlmm import runinfo
+from fasterlmm.inflation import merge_shard_tables, write_shard_table
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.cli import _default_write_workers, _drain_done, _parse_shard, _resource_stats, _write_pheno
 from fasterlmm.extreme_scan import loco_scan_resident, loco_scan_streamed
@@ -243,7 +244,7 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
                   "pos": handle.pos, "g_var": g_var, "sid_index": np.arange(M, dtype = np.int64),
                   "gendist": pa.nulls(M, pa.float64()), "mixing": np.zeros(M),
                   "phenocount": np.full(M, 1 + args.n_perm),
-                  "pheno_idx": pa.array(np.zeros(M, dtype = np.int32))}
+                  "pheno_idx": pa.array(np.zeros(M, dtype = np.int32)), "lambda_rows": []}
     if args.bundle:
         if shard_i is not None:
             bundle_path = outdir / BUNDLE_PARTS_DIRNAME / f"shard{shard_i}.parquet"
@@ -323,6 +324,7 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
         writer_pool.shutdown(wait = True)
     if bundle_writer is not None:
         bundle_writer.close()
+    write_shard_table(outdir, shard_i, writer_ctx["lambda_rows"], {n: i for i, n in enumerate(pheno.names)})
 
     if getattr(args, "manhattan", False):
         from fasterlmm.plot import plot_scan
@@ -475,6 +477,7 @@ def main() -> None:
         except (OSError, ValueError):
             pass
         write_status(str(status_path), {**existing, **final})
+        merge_shard_tables(args.outdir)
         runinfo.update(args.outdir, None, state = "done", n_gpu = final["n_gpu"], bundle = final.get("bundle"))
 
         if auto_dispatch and args.bundle and args.manhattan:

@@ -135,11 +135,13 @@ runs/example/
 ├── <phenotype>/
 │   ├── gwas.tsv
 │   ├── perms.tsv
-│   └── threshold.txt
+│   ├── threshold.txt
+│   └── lambda_gc.txt
 ├── gwas_bundle.parquet/
 │   └── gwas-results-part-00000.parquet
 ├── manhattan/
 │   └── <phenotype>.pdf
+├── lambda_gc.tsv
 ├── pheno_rint.tsv
 ├── run_info.json
 ├── run.log
@@ -153,6 +155,7 @@ Each phenotype gets:
 | `gwas.tsv` | Per-variant results sorted by p-value, using the FaST-LMM `single_snp` column format. |
 | `perms.tsv` | The minimum genome-wide p-value from each permutation. |
 | `threshold.txt` | The significance threshold: the 5th percentile of permutation minimum p-values by default. |
+| `lambda_gc.txt` | Genomic inflation factor (lambda GC) of the phenotype. |
 
 The combined bundle adds `threshold` and `significant` columns. A variant is marked significant when its p-value is below its phenotype's threshold.
 
@@ -169,6 +172,8 @@ print(hits[["Pheno", "SNP", "Chr", "ChrPos", "PValue", "threshold"]])
 Despite its suffix, `gwas_bundle.parquet` is a **directory of Parquet parts**. In Snakemake, declare it with `directory("runs/example/gwas_bundle.parquet")`.
 
 Parts are named `gwas-results-part-00000.parquet`, `gwas-results-part-00001.parquet`, and so on. Gathered GPU or cluster shards add a prefix, such as `shard0-gwas-results-part-00000.parquet`. Each file can contain several phenotypes; read the whole directory to load all results.
+
+`lambda_gc.tsv` lists the genomic inflation factor of every phenotype (`Pheno`, `PhenoIndex`, `LambdaGC`, `NVariants`), in phenotype column order, also with `--no-per-pheno-dirs`. It is computed from the PValue column as the median of `qchisq(1 - p, 1)` divided by `qchisq(0.5, 1)`, the same definition as `calc_GIF.R` in the [1086 yeast genomes repository](https://github.com/HaploTeam/1086YeastGenomes/blob/main/GWAS/src/calc_GIF.R), with missing p-values dropped. A `--shard` array writes one `lambda_gc.shardX.tsv` per task and `fasterlmm concat` merges them.
 
 With RINT on (the default), `pheno_rint.tsv` holds the transformed phenotype table in the input layout (a `Strain` column, then one column per phenotype, input strain order), so the values the scan used can be inspected or fed back with `--pheno ... --no-rint`. It covers every strain in the phenotype file, before matching to the genotype. A `--shard` array writes it from task 0 only, and `--no-rint` skips it.
 

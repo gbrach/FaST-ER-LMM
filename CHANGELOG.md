@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
 
 - Allow missing values in the phenotype table of `gwas`. Phenotypes are grouped by NA pattern and each group scans on its own strain subset with one eigendecomposition per chromosome; a table without missing values is unchanged. Previously one NA turned every result of that phenotype into NA.
+- Report the genomic inflation factor: `lambda_gc.txt` per phenotype folder and a `lambda_gc.tsv` summary (`Pheno`, `PhenoIndex`, `LambdaGC`, `NVariants`), same definition as `calc_GIF.R`; shard arrays write `lambda_gc.shardX.tsv`, merged by `fasterlmm concat`.
 
 ## 1.3.2
 

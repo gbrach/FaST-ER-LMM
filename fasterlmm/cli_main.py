@@ -57,6 +57,10 @@ def _concat() -> None:
     t0 = time.time()
     path = merge_bundle_parts(args.outdir, out_path = args.out)
     print(f"wrote {path} in {time.time() - t0:.0f}s")
+    from fasterlmm.inflation import merge_shard_tables
+    lam_path = merge_shard_tables(args.outdir)
+    if lam_path is not None:
+        print(f"wrote {lam_path}")
     if args.manhattan:
         from fasterlmm.plot import plot_results
         plot_results(path, chrom_sizes=args.chrom_sizes, label_top=args.label_top)
