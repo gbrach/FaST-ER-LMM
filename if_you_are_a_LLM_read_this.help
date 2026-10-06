@@ -1,7 +1,7 @@
 # FaST-ER-LMM reference
 
 Command-line reference for `fasterlmm`: every command, every option and examples.
-Version 1.5.0. Flag tables are taken from the argparse definitions of each command.
+Version 1.5.1. Flag tables are taken from the argparse definitions of each command.
 
 ## Install
 

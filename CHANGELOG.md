@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.1
 
 - Group the `--clump` variants as connected components of the LD graph (same chromosome, within the window, r2 at or above the threshold), the grouping of `addLinkageGroups.py` in the 1086 yeast genomes GWAS, instead of greedy index-variant clumping. Groups can now chain through intermediate variants. r2 is the squared Pearson correlation over the strains called in both variants, as plink `--r2`, so missing calls do not shrink it; checked against plink 1.90 (r2 within 1e-6, identical groups).
 
