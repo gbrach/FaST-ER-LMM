@@ -31,8 +31,6 @@ The recorded v1.2.0 benchmark for **1,000 samples × 100,000 variants × 6,484 p
 | 1 × NVIDIA V100S (32 GB) | 9.6 minutes |
 | 2 × NVIDIA V100S (32 GB) | 5.2 minutes |
 
-These are single-run timings recorded in [the figure script](generate_figures.py), not averages across repeated runs. Runtime depends on dataset size, permutation count, hardware, and output settings.
-
 ## Install
 
 Requires Python 3.10+. Install directly from GitHub inside a mamba environment:
