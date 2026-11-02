@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.3
+
+- Add `six` to the dependencies: pysnptools imports it without declaring it, so a fresh install failed on import.
+
 ## 1.5.2
 
 - `--clump-window-kb 0` groups variants over the whole genome: no distance limit and chromosomes included. The default stays 50 kb on the same chromosome.
