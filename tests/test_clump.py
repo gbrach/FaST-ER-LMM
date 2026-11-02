@@ -139,3 +139,11 @@ def test_clump_r2_is_pairwise_complete_with_missing_calls():
     _, lab = connected_components(adj, directed = False)
     part = lambda l: sorted(map(tuple, (np.flatnonzero(np.asarray(l) == u) for u in np.unique(l))))
     assert part(got) == part(lab)
+
+
+def test_clump_without_window_runs_over_the_whole_genome():
+    z, chrom, pos = _panel()
+    p = np.array([1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4])
+    g = ld_clump(z, chrom, pos, p, cutoff = 1.0, window_bp = None, r2_min = 0.5)
+    assert g[0] == g[1] == g[3] == g[4] == g[5] == 1  # far copy and the other-chromosome copy join the signal
+    assert g[2] == 2

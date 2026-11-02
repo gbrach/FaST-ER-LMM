@@ -243,7 +243,7 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         if args.clump:
             # LD is computed on every strain from the raw calls (NaN for missing), float32 holds 0 / 1 / 2 exactly
             writer_ctx["clump"] = {"z": data.Z.cpu().numpy().astype(np.float32),
-                                   "window_bp": args.clump_window_kb * 1000.0, "r2": args.clump_r2,
+                                   "window_bp": args.clump_window_kb * 1000.0 if args.clump_window_kb > 0 else None, "r2": args.clump_r2,
                                    "p": args.clump_p}
         # one bundle writer per scan process -- a sharded run streams to .bundle_parts/shard{i}.parquet
         # and the parent concats them, an unsharded run streams straight to the final bundle
@@ -512,7 +512,8 @@ def main() -> None:
                         help = "add an LDGroup column: per phenotype, LD groups (connected components) of the variants under "
                         "the perm threshold (or --clump-p), group 1 holds the most significant variant")
     parser.add_argument("--clump-window-kb", type = int, default = 50,
-                        help = "max distance in kb between two variants to be linked in the same group (default 50)")
+                        help = "max distance in kb between two variants to be linked in the same group "
+                        "(default 50), 0 means no region: every pair over the whole genome, chromosomes included")
     parser.add_argument("--clump-r2", type = float, default = 0.5,
                         help = "r2 at or above which two variants are linked in the same group (default 0.5)")
     parser.add_argument("--clump-p", type = float, default = None,

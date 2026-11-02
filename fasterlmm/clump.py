@@ -36,12 +36,13 @@ def _pair_r2(x0: np.ndarray, ox: np.ndarray,
 
 def ld_clump(geno: np.ndarray, chrom: np.ndarray,
              pos: np.ndarray, p: np.ndarray,
-             cutoff: float, window_bp: float,
+             cutoff: float, window_bp: float | None,
              r2_min: float) -> np.ndarray:
     """
     LD groups for one trait, returns an int32 (M,) with 0 for variants that are not grouped
     Candidates are the variants with p <= cutoff, nothing else gets a group
     Two candidates are linked when they sit on the same chromosome, no more than window_bp apart, with r2 >= r2_min
+    window_bp None means no region at all, every pair of candidates over the whole genome (chromosomes included) is tested
     A group is a connected component of that graph, so it can chain past the window through intermediate variants
     Ids count from 1 in order of each group's smallest p-value, ties resolve by variant order
     r2 comes from geno, the raw genotypes over all strains (N, M) with NaN for missing calls, so it does not depend on
@@ -57,6 +58,9 @@ def ld_clump(geno: np.ndarray, chrom: np.ndarray,
     order = np.lexsort((pos[cand], c_rank))
     cand_s = cand[order]
     key = c_rank[order].astype(np.float64) * 1e13 + pos[cand_s]
+    if window_bp is None:  # genome-wide, one shared key makes every later variant fall inside the run
+        key = np.zeros_like(key)
+        window_bp = 0.0
     gc = geno[:, cand_s].astype(np.float64)
     obs = ~np.isnan(gc)
     g0 = np.where(obs, gc, 0.0)

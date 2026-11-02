@@ -133,10 +133,10 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 
 | Option | What it changes |
 |---|---|
-| `--n-perm 1000` | Run 1,000 permutations per phenotype; default: 100. |
+| `--n-perm 100` | Run 100 permutations per phenotype; default: 100. |
 | `--perm-quantile 0.05` | Set the quantile of permutation minimum p-values used as the significance threshold; default: 0.05. |
 | `--clump` | Add an `LDGroup` column for variants below each phenotype's permutation threshold (`gwas` only). |
-| `--clump-window-kb 50` | Maximum distance in kb between two variants for them to be linked in the same group; default: 50. |
+| `--clump-window-kb 50` | Maximum distance in kb between two variants for them to be linked in the same group; default: 50. `0` removes the region: every pair of variants over the whole genome is tested, across chromosomes too. |
 | `--clump-r2 0.5` | r2 at or above which two variants are linked in the same group; default: 0.5. |
 | `--clump-p 1e-5` | Fixed p-value cutoff for the variants that get a group, instead of each phenotype's permutation threshold. |
 | `--no-rint` | Use phenotype values without the default rank-based inverse normal transform. |
@@ -178,7 +178,7 @@ Each phenotype gets:
 
 With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants below the cutoff get a group; the rest stay empty.
 
-Two variants are linked if they are on the same chromosome, within the distance window, and meet the r² cutoff. Groups are connected components, so a chain of linked variants can extend beyond the window. Groups are numbered by their smallest p-value; group 1 contains the top hit.
+Two variants are linked if they meet the r² cutoff and, are on the same chromosome within `--clump-window-kb`. With `--clump-window-kb 0` there is no region and every pair of variants over the whole genome is tested, chromosomes included (slow when many variants pass the cutoff). Groups are connected components, so a chain of linked variants can extend beyond the window. Groups are numbered by their smallest p-value; group 1 contains the top hit.
 
 LD uses squared Pearson correlation over individuals called at both variants, as in PLINK `--r2`. It is calculated from the full aligned genotype panel, independently of phenotype missingness. The grouping follows `addLinkageGroups.py` from the [1086 yeast genomes GWAS](https://github.com/HaploTeam/1086YeastGenomes/tree/main/GWAS).
 

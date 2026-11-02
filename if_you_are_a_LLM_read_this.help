@@ -1,7 +1,7 @@
 # FaST-ER-LMM reference
 
 Command-line reference for `fasterlmm`: every command, every option and examples.
-Version 1.5.1. Flag tables are taken from the argparse definitions of each command.
+Version 1.5.2. Flag tables are taken from the argparse definitions of each command.
 
 ## Install
 
@@ -85,7 +85,7 @@ Defaults worth knowing: LOCO on, rank-based inverse normal transform (Blom) of e
 | `--bundle` |  | after scanning, bundle the per-pheno results into one parquet |
 | `--no-per-pheno-dirs` |  | skip the per-pheno output tree, write only the bundle parquet (needs --bundle) |
 | `--clump` |  | add an LDGroup column: per-phenotype LD groups (connected components) of the variants under the perm threshold (or --clump-p), group 1 holds the most significant variant |
-| `--clump-window-kb INT` | `50` | max distance in kb between two variants for them to be linked in the same group |
+| `--clump-window-kb INT` | `50` | max distance in kb between two variants for them to be linked in the same group, `0` = no region, whole genome and chromosomes included |
 | `--clump-r2 FLOAT` | `0.5` | r2 at or above which two variants are linked in the same group |
 | `--clump-p FLOAT` |  | fixed p-value cutoff for the variants that get a group, default is each phenotype's perm threshold |
 | `--dry-run` |  | load inputs, print the planned work (N/M/P, n_perm, shards, device), and exit before scanning |
@@ -106,7 +106,7 @@ NAs (or empty cells) in the phenotype table are allowed. Phenotypes with the sam
 
 Adds an `LDGroup` column (nullable integer) per phenotype, to `gwas.tsv` and to the bundle.
 - Candidates are the variants with p <= the phenotype's permutation threshold, or `--clump-p` when given. Other variants stay empty.
-- Graph: two candidates are linked when they are on the same chromosome, at most `--clump-window-kb` apart, with r2 >= `--clump-r2`. A group is a connected component, so groups can chain past the window. Same grouping as addLinkageGroups.py of HaploTeam/1086YeastGenomes (it ran plink --r2 first, plink is not needed here). Ids count from 1 by each group's smallest p-value, so group 1 holds the top hit.
+- Graph: two candidates are linked when they are on the same chromosome, at most `--clump-window-kb` apart, with r2 >= `--clump-r2`. With `--clump-window-kb 0` there is no region: every pair of candidates over the whole genome is tested, chromosomes included (slow with many candidates). A group is a connected component, so groups can chain past the window. Same grouping as addLinkageGroups.py of HaploTeam/1086YeastGenomes (it ran plink --r2 first, plink is not needed here). Ids count from 1 by each group's smallest p-value, so group 1 holds the top hit.
 - r2 is the squared Pearson correlation over the strains called in both variants (pairwise complete, as plink --r2), computed on all strains, so it does not depend on the phenotype or on the NA groups. Checked against plink 1.90b6: r2 within 1e-6, identical groups, at 0, 3 and 15% missing calls, windows 5 to 100 kb, r2 0.2 to 1.0. `tests/test_clump_plink.py` repeats it when a plink binary is on the PATH (or FASTERLMM_PLINK).
 - Ties in p-value resolve by variant order.
 
