@@ -178,7 +178,7 @@ Each phenotype gets:
 
 With `--clump`, `gwas.tsv` and the bundle gain an `LDGroup` column. Only variants below the cutoff get a group; the rest stay empty.
 
-Two variants are linked if they meet the r² cutoff and, are on the same chromosome within `--clump-window-kb`. With `--clump-window-kb 0` there is no region and every pair of variants over the whole genome is tested, chromosomes included (slow when many variants pass the cutoff). Groups are connected components, so a chain of linked variants can extend beyond the window. Groups are numbered by their smallest p-value; group 1 contains the top hit.
+Two variants are linked if they meet the r² cutoff and are on the same chromosome within `--clump-window-kb`. With `--clump-window-kb 0` there is no region and every pair of variants over the whole genome is tested, chromosomes included (slow when many variants pass the cutoff). Groups are connected components, so a chain of linked variants can extend beyond the window. Groups are numbered by their smallest p-value; group 1 contains the top hit.
 
 LD uses squared Pearson correlation over individuals called at both variants, as in PLINK `--r2`. It is calculated from the full aligned genotype panel, independently of phenotype missingness. The grouping follows `addLinkageGroups.py` from the [1086 yeast genomes GWAS](https://github.com/HaploTeam/1086YeastGenomes/tree/main/GWAS).
 
