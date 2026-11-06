@@ -240,8 +240,6 @@ def manhattan_figure(frame, name, *, chrom_sizes=None, label_top=10):
     ax.set_title("\n".join(textwrap.wrap(str(name), width=80)), fontweight="bold", fontsize=12, pad=14)
     _label_hits(ax, hits, label_top)
     footer = "Permutation threshold unavailable" if threshold is None else f"Permutation threshold: {threshold:.3g}"
-    if len(hits) > label_top:
-        footer += f"  |  up to {label_top} strongest hits labelled"
     if (data.PValue == 0).any():
         footer += "  |  p=0 clipped to smallest positive float"
     fig.text(0.09, 0.045, footer, fontsize=7, color="#666666")
