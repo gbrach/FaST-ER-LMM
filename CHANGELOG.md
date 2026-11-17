@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0
+
+- Support binary and trinary phenotypes in `gwas` and `extreme`: yes/no or yes/no/partial traits coded 0/1(/2) in the phenotype table. `--no-rint-discrete` leaves columns with 2-3 distinct values as raw numbers (default unchanged, they are still RINT-transformed; for 2 classes the p-values are the same either way, only the effect scale changes), `--categorical NAME[,NAME]` expands unordered classes into one-vs-rest 0/1 columns (`name__lvl<v>`), `--missing-code` reads a value such as -9 as missing, and `gwas` skips a raw 0/1(/2) column that is constant or has a rarest class under `--min-minor-count` (default 10) strains.
+
 ## 1.5.3
 
 - Add `six` to the dependencies: pysnptools imports it without declaring it, so a fresh install failed on import.

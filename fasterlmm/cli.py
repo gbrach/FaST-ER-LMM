@@ -33,7 +33,7 @@ from fasterlmm.inflation import lambda_gc, merge_shard_tables, write_shard_table
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.clump import ld_clump
 from fasterlmm.io import align_inputs, group_by_na, read_covar, read_phen, read_plink, subset_dataset
-from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
+from fasterlmm.normalize import RINT_FILENAME, degenerate_columns, prepare_pheno, write_rint_matrix
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
 
@@ -193,10 +193,16 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
 
     geno = read_plink(args.geno)
     pheno = read_phen(args.pheno)
-    if args.rint:
+    raw_names: set = set()
+    if args.rint or args.categorical or args.missing_code is not None:
         # Blom RINT before alignment so the strain order doesn't matter -- rank-then-qnorm is invariant to row
         # permutation but applying here keeps the pipeline short
-        pheno.Y = rint_columns(pheno.Y)
+        # discrete columns (2-3 levels) stay RINT'd unless --no-rint-discrete, categorical ones are expanded to
+        # one-vs-rest indicators and never RINT'd
+        cats = [c for c in args.categorical.split(",") if c] if args.categorical else None
+        info = prepare_pheno(pheno, rint = args.rint, rint_discrete = args.rint_discrete, categorical = cats,
+                             missing_code = args.missing_code)
+        raw_names = set(info["raw"])
         # the transformed matrix rides along with the results, written once (shard 0 when sharded)
         if shard_i in (None, 0) and not getattr(args, "dry_run", False):
             rint_path = write_rint_matrix(pheno.iid, pheno.names, pheno.Y, outdir / RINT_FILENAME)
@@ -281,6 +287,19 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         display_offset = sum(len(pheno_list[k::shard_n]) for k in range(shard_i))
         pheno_list = pheno_list[shard_i::shard_n]  # round-robin slice so progress stays balanced acros shards
 
+    # raw discrete columns that went constant or near constant after alignment would scan as noise, F is scale
+    # free so a leftover 1e-16 residual still gives plausible hits. dropped here so the status totals stay honest
+    raw_idx = [i for i, n in enumerate(data.pheno_names) if n in raw_names]
+    if raw_idx:
+        bad = degenerate_columns(data.Y[:, raw_idx].cpu().numpy(), args.min_minor_count)
+        drop = {raw_idx[k] for k in np.flatnonzero(bad)}
+        drop &= set(pheno_list)
+        if drop:
+            print(f"{log_prefix}skipping {len(drop)} raw discrete phenos with under 2 levels or a minor level under "
+                  f"{args.min_minor_count} strains (first: {data.pheno_names[min(drop)]})", file = sys.stderr,
+                  flush = True)
+            pheno_list = [p for p in pheno_list if p not in drop]
+
     shard_str = f"{shard_i}/{shard_n}" if shard_n else None
     started_at = time.time()
     # one leave-one-out fold per distinct chromosome -- the watcher draws that sweep as a dot strip,
@@ -329,6 +348,17 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         print(f"{log_prefix}NAs in the phenos, {len(groups)} distinct NA patterns over {len(pheno_list)} phenos, "
               f"one eigendecomposition per pattern", file = sys.stderr, flush = True)
         for keep, cols in groups:
+            # same discrete guard inside the strain subset of this NA pattern
+            raw_c = [c for c in cols if data.pheno_names[c] in raw_names]
+            if raw_c and len(keep) > 0:
+                bad_c = degenerate_columns(data.Y[keep][:, raw_c].cpu().numpy(), args.min_minor_count)
+                gone = {raw_c[k] for k in np.flatnonzero(bad_c)}
+                if gone:
+                    print(f"{log_prefix}skipping {len(gone)} raw discrete phenos degenerate in their NA group "
+                          f"(first: {data.pheno_names[min(gone)]})", file = sys.stderr, flush = True)
+                    cols = [c for c in cols if c not in gone]
+                    if not cols:
+                        continue
             df2_g = len(keep) - C - 1
             if df2_g < 1:
                 print(f"{log_prefix}skipping {len(cols)} phenos with only {len(keep)} strains left "
@@ -486,8 +516,14 @@ def main() -> None:
     Folds the per-shard bundle merge in at the end for a dispatched run, a --shard slurm array finishs that
     gather with a seperate fasterlmm concat
     """
-    parser = argparse.ArgumentParser(prog = "fasterlmm gwas",
-                                     description = "torch port of fastlmm GWAS with " "LOCO + perm threshold")
+    parser = argparse.ArgumentParser(prog = "fasterlmm gwas", formatter_class = argparse.RawDescriptionHelpFormatter,
+                                     description = "torch port of fastlmm GWAS with " "LOCO + perm threshold",
+                                     epilog = "yes/no or yes/no/partial phenotypes: code them 0/1(/2) in the pheno table "
+                                     "(empty cell = unknown).\n"
+                                     "  ordered (no < partial < yes)  --no-rint-discrete keeps the raw codes\n"
+                                     "  unordered classes             --categorical NAME, one 0/1 column per class\n"
+                                     "  plink style -9 for missing    --missing-code -9\n"
+                                     "example: data/example/example_pheno_discrete.tsv")
     parser.add_argument("--geno", required = True, help = "plink BED prefix")
     parser.add_argument("--pheno", required = True, help = "wide phen tsv with Strain column")
     parser.add_argument("--kinship-geno", default = None, metavar = "PREFIX",
@@ -529,6 +565,17 @@ def main() -> None:
     parser.add_argument("--rint", action = argparse.BooleanOptionalAction, default = True,
                         help = "Blom rank-based inverse normal transform on each pheno column, ON by default "
                         "(use --no-rint to disable)")
+    parser.add_argument("--rint-discrete", action = argparse.BooleanOptionalAction, default = True,
+                        help = "RINT also the binary / trinary columns (2-3 distinct values), ON by default for "
+                        "starlight parity. --no-rint-discrete leaves them as raw 0/1(/2) numbers, same p for 2 "
+                        "levels (only beta scale changes), different p for 3")
+    parser.add_argument("--categorical", default = None, help = "comma list of unordered categorical pheno "
+                        "columns, each expanded to one-vs-rest 0/1 indicators (name__lvl<v>) and left unRINT'd")
+    parser.add_argument("--missing-code", type = float, default = None, help = "pheno value to read as missing, "
+                        "e.g. -9 for plink style files. needed when a raw discrete column holds that code")
+    parser.add_argument("--min-minor-count", type = int, default = 10, help = "raw discrete phenos whose minor "
+                        "level has fewer strains than this (after alignment) are skipped, rare cases make the "
+                        "wald F unreliable")
     parser.add_argument("--seed", type = int, default = 19930909)
     parser.add_argument("--device", default = "cuda", help = "cuda (auto-dispatch across visible GPUs), cuda:N "
                         "(single device), mps (apple silicon gpu, runs float32), or cpu")

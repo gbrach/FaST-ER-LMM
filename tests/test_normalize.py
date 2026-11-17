@@ -129,3 +129,84 @@ def test_write_rint_matrix_round_trips_through_read_phen(tmp_path):
     assert np.array_equal(back.Y, Y, equal_nan = True)
     assert (tmp_path / "out" / "pheno_rint.tsv").read_text().startswith("Strain\tp1\tp2\n")
     assert not list((tmp_path / "out").glob("*.tmp"))
+
+
+# ---- binary / trinary phenos ----
+
+from types import SimpleNamespace
+
+from fasterlmm.normalize import degenerate_columns, discrete_mask, expand_categorical, prepare_pheno
+
+
+def _pheno(Y, names):
+    return SimpleNamespace(iid = [f"s{i}" for i in range(len(Y))], names = list(names), Y = np.asarray(Y, float))
+
+
+def test_discrete_mask_levels():
+    """2 and 3 level columns are discrete, continuous / constant / all-nan are not"""
+    Y = np.column_stack([[0, 1, 0, 1, 1], [0, 1, 2, 1, 0], [0, 1, 2, 3, 4], [1, 1, 1, 1, 1], [np.nan] * 5])
+    assert discrete_mask(Y).tolist() == [True, True, False, False, False]
+
+
+def test_prepare_default_matches_rint_columns():
+    """default flags are exactly the old rint_columns call, discrete columns included"""
+    rng = np.random.default_rng(1)
+    Y = np.column_stack([rng.normal(size = 30), rng.integers(0, 2, 30)])
+    p = _pheno(Y, ["a", "b"])
+    prepare_pheno(p, rint = True, rint_discrete = True)
+    assert np.array_equal(p.Y, rint_columns(Y))
+
+
+def test_prepare_no_rint_discrete_leaves_raw():
+    rng = np.random.default_rng(2)
+    b = rng.integers(0, 2, 30).astype(float)
+    Y = np.column_stack([rng.normal(size = 30), b])
+    p = _pheno(Y, ["a", "b"])
+    info = prepare_pheno(p, rint = True, rint_discrete = False)
+    assert np.array_equal(p.Y[:, 1], b)
+    assert np.array_equal(p.Y[:, 0], rint_columns(Y[:, 0]))
+    assert info["raw"] == ["b"]
+
+
+def test_binary_rint_is_affine():
+    """RINT of a 2 level column is a positive affine map of it, the reason skipping it is cosmetic for binary"""
+    b = np.array([0, 1, 1, 0, 0, 1, 0, 0, 1, 0], float)
+    r = rint_columns(b)
+    a, c = np.polyfit(b, r, 1)
+    assert a > 0 and np.allclose(a * b + c, r)
+
+
+def test_expand_categorical_names_nan_and_two_levels():
+    Y = np.array([[0, 5], [1, 6], [2, 7], [np.nan, 8], [1, 9]], float)
+    out, names, made = expand_categorical(Y, ["g", "x"], ["g"])
+    assert names == ["g__lvl0", "g__lvl1", "g__lvl2", "x"] and made == names[:3]
+    assert np.isnan(out[3, :3]).all() and not np.isnan(out[3, 3])
+    assert out[:, 1].tolist()[:3] == [0, 1, 0]
+    # 2 levels give only the higher one
+    out2, names2, _ = expand_categorical(np.array([[0.], [1.], [1.]]), ["g"], ["g"])
+    assert names2 == ["g__lvl1"] and out2[:, 0].tolist() == [0, 1, 1]
+
+
+def test_expand_categorical_errors():
+    with pytest.raises(ValueError, match = "not in the pheno table"):
+        expand_categorical(np.zeros((3, 1)), ["a"], ["nope"])
+    with pytest.raises(ValueError, match = "at least 2"):
+        expand_categorical(np.ones((3, 1)), ["a"], ["a"])
+    with pytest.raises(ValueError, match = "collide"):
+        expand_categorical(np.array([[0, 1.], [1, 0], [0, 1]]), ["g", "g__lvl1"], ["g"])
+
+
+def test_minus_nine_errors_unless_missing_code():
+    Y = np.array([[1], [2], [-9], [1], [2]], float)
+    with pytest.raises(ValueError, match = "-9"):
+        prepare_pheno(_pheno(Y, ["c"]), rint = True, rint_discrete = False)
+    p = _pheno(Y, ["c"])
+    prepare_pheno(p, rint = True, rint_discrete = False, missing_code = -9)
+    assert np.isnan(p.Y[2, 0])
+    # default RINT path keeps the old behaviour, no error
+    prepare_pheno(_pheno(Y, ["c"]), rint = True, rint_discrete = True)
+
+
+def test_degenerate_columns():
+    Y = np.column_stack([np.ones(40), np.r_[np.zeros(35), np.ones(5)], np.r_[np.zeros(20), np.ones(20)]])
+    assert degenerate_columns(Y, 10).tolist() == [True, True, False]

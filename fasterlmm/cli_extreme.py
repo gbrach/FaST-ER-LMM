@@ -36,7 +36,7 @@ from fasterlmm.extreme_scan import loco_scan_resident, loco_scan_streamed
 from fasterlmm.io import read_covar, read_phen
 from fasterlmm.io_stream import (open_aligned_bed, read_all_standardised, read_grm_factor, select_grm_markers,
                                  stream_genotype_var)
-from fasterlmm.normalize import RINT_FILENAME, rint_columns, write_rint_matrix
+from fasterlmm.normalize import RINT_FILENAME, prepare_pheno, write_rint_matrix
 from fasterlmm.progress import write_status
 
 
@@ -151,8 +151,12 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
     dtype = torch.float64 if args.float64 else torch.float32
 
     pheno = read_phen(args.pheno)
-    if args.rint:
-        pheno.Y = rint_columns(pheno.Y)  # Blom RINT before alignment, rank-then-qnorm is row-order invariant
+    if args.rint or args.categorical or args.missing_code is not None:
+        # Blom RINT before alignment, rank-then-qnorm is row-order invariant. discrete / categorical handling as in
+        # the gwas cli, but the degenerate-column guard is only in gwas for now
+        cats = [c for c in args.categorical.split(",") if c] if args.categorical else None
+        prepare_pheno(pheno, rint = args.rint, rint_discrete = args.rint_discrete, categorical = cats,
+                      missing_code = args.missing_code)
         # the transformed matrix rides along with the results, written once (shard 0 when sharded)
         if shard_i in (None, 0) and not getattr(args, "dry_run", False):
             rint_path = write_rint_matrix(pheno.iid, pheno.names, pheno.Y, outdir / RINT_FILENAME)
@@ -390,6 +394,13 @@ def main() -> None:
                         help = "writer threads, unset fills the " "core allocation")
     parser.add_argument("--rint", action = argparse.BooleanOptionalAction, default = True,
                         help = "Blom rank-based inverse normal transform per pheno, ON by default")
+    parser.add_argument("--rint-discrete", action = argparse.BooleanOptionalAction, default = True,
+                        help = "RINT the binary / trinary columns too, ON by default. --no-rint-discrete keeps "
+                        "them as raw 0/1(/2) numbers")
+    parser.add_argument("--categorical", default = None, help = "comma list of unordered categorical pheno "
+                        "columns, expanded to one-vs-rest 0/1 indicators and left unRINT'd")
+    parser.add_argument("--missing-code", type = float, default = None, help = "pheno value to read as missing, "
+                        "e.g. -9")
     parser.add_argument("--float64", action = "store_true",
                         help = "run in float64 (default float32, the scale " "setting)")
     parser.add_argument("--seed", type = int, default = 19930909)

@@ -108,6 +108,23 @@ fasterlmm gwas \
 - `--clump` adds an `LDGroup` column to the bundle, grouping significant variants by LD (defaults: 50 kb window, r2 0.5).
 - Missing values in the phenotype table are fine: phenotypes missing values for the same individuals are scanned together using the remaining individuals.
 
+## Binary and trinary phenotypes
+
+Yes/no and yes/no/partial traits go in the same `--pheno` table as the numeric ones. The table is read as numbers, so code the classes before running: no = 0, yes = 1 (and partial = 2 if it sits between), and leave a cell empty when the state is unknown. `data/example/example_pheno_discrete.tsv` has one of each (`sporulates`, 0/1, and `heterothallic`, 0/1/2).
+
+```bash
+fasterlmm gwas --geno data/example/example --pheno data/example/example_pheno_discrete.tsv \
+  --covar data/example/example_covar.tab --outdir runs/example_discrete/ --no-rint-discrete --min-minor-count 5
+```
+
+- Two classes (yes/no): the usual linear model on the 0/1 column. The p-values, heritability and permutation threshold are the same with and without RINT, only the scale of the effect changes. `--no-rint-discrete` leaves the 0/1 as it is, so the effect is the change in the proportion of yes per allele.
+- Three ordered classes (no < partial < yes coded 0/1/2): a trend test across the classes. With `--no-rint-discrete` the codes 0/1/2 are used as given. With RINT (the default) the gaps between classes depend on how many strains sit in each, so the p-values differ between the two.
+- Three unordered classes: `--categorical heterothallic` replaces the column with one 0/1 column per class (`heterothallic__lvl0`, `__lvl1`, `__lvl2`), each scanned on its own, never RINT-transformed. A column with two classes gives a single indicator. Each indicator has its own permutation threshold, so across the classes of one trait divide the threshold by their number (Bonferroni).
+- Columns with 2 or 3 distinct values are RINT-transformed by default like every other phenotype (same behaviour as before), the run prints how many there are.
+- `--missing-code -9` reads -9 as missing (PLINK style files). Without it, a 2-3 class column holding -9 that is left untransformed stops the run, since -9 would count as a real class.
+- `--min-minor-count 10` (`gwas`): a left-untransformed 0/1(/2) column is skipped when, after matching strains, it has one class only or its rarest class has fewer than this many strains. A constant column would otherwise scan as noise.
+- Caveats: this is the linear model on 0/1 codes, not a logistic model. Fewer than about 5% yes (or no) makes the p-values unreliable at rare variants, filter on minor allele count. Heritability is on the observed 0/1 scale; on the liability scale it is h2 x K(1-K) / phi(z)^2, K the fraction of yes and phi(z) the normal density at the K quantile.
+
 ## Input formats
 
 | Input | Expected format |
@@ -140,6 +157,10 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 | `--clump-r2 0.5` | r2 at or above which two variants are linked in the same group; default: 0.5. |
 | `--clump-p 1e-5` | Fixed p-value cutoff for the variants that get a group, instead of each phenotype's permutation threshold. |
 | `--no-rint` | Use phenotype values without the default rank-based inverse normal transform. |
+| `--no-rint-discrete` | Leave phenotype columns with 2 or 3 distinct values (yes/no, yes/no/partial) as raw numbers, see Binary and trinary phenotypes. |
+| `--categorical NAME[,NAME]` | Expand unordered categorical phenotypes into one 0/1 column per class. |
+| `--missing-code -9` | Read this phenotype value as missing. |
+| `--min-minor-count 10` | Skip a raw 0/1(/2) phenotype whose rarest class has fewer strains (`gwas` only); default: 10. |
 | `--no-loco` | Use a shared relatedness model across chromosomes (`gwas` only). |
 | `--phenos-per-job 32` | Set how many phenotypes are processed per batch; lower this to reduce batch memory use. |
 | `--bundle --no-per-pheno-dirs` | Write a combined Parquet dataset without individual phenotype folders. |
@@ -336,4 +357,4 @@ FaST-ER-LMM builds on FaST-LMM, described in [Lippert et al. (2011), *Nature Met
 - [ ] QQ plots.
 - [ ] Benchmark on H100 and H200, just for fun!
 - [x] MPS support: `--device mps` runs on Apple Silicon GPUs in float32.
-- [ ] Binary phenotypes?
+- [x] Binary and trinary phenotypes: 0/1(/2) columns, `--no-rint-discrete`, `--categorical`.

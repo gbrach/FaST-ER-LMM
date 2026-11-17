@@ -191,3 +191,33 @@ def test_watch_help() -> None:
     """fasterlmm watch --help returns clean -- the tui itself blocks so the actual run isnt tested here"""
     r = _run("watch", "--help")
     assert r.returncode == 0
+
+
+def test_gwas_binary_pheno_rint_invariant(example_geno, example_pheno, outdir, tmp_path) -> None:
+    """a 0/1 pheno gives the same p / Nullh2 with and without RINT (RINT is affine on 2 levels), only beta rescales"""
+    import numpy as np
+    df = pd.read_csv(example_pheno, sep = "\t")
+    rng = np.random.default_rng(19930909)
+    b = (df[PHENO_NAMES[0]] > df[PHENO_NAMES[0]].median()).astype(float)
+    b[rng.random(len(b)) < 0.1] = float("nan")
+    bin_path = tmp_path / "bin.tsv"
+    pd.DataFrame({"Strain": df["Strain"], "bin": b}).to_csv(bin_path, sep = "\t", index = False)
+    a_dir = tmp_path / "rint_bin"
+    _run(*(_basic_gwas_args(example_geno, bin_path, a_dir) + ["--min-minor-count", "5"]))
+    _run(*(_basic_gwas_args(example_geno, bin_path, outdir) + ["--no-rint-discrete", "--min-minor-count", "5"]))
+    a = pd.read_csv(a_dir / "bin" / "gwas.tsv", sep = "\t")
+    r = pd.read_csv(outdir / "bin" / "gwas.tsv", sep = "\t")
+    assert np.allclose(a.PValue, r.PValue, rtol = 1e-6, atol = 0)
+    assert np.allclose(a.Nullh2, r.Nullh2, rtol = 1e-6, atol = 0)
+
+
+def test_gwas_categorical_expands(example_geno, example_pheno, outdir, tmp_path) -> None:
+    """--categorical writes one dir per level indicator and drops the parent"""
+    import numpy as np
+    df = pd.read_csv(example_pheno, sep = "\t")
+    lv = np.digitize(df[PHENO_NAMES[0]], np.quantile(df[PHENO_NAMES[0]], [1 / 3, 2 / 3])).astype(float)
+    cat_path = tmp_path / "cat.tsv"
+    pd.DataFrame({"Strain": df["Strain"], "grp": lv}).to_csv(cat_path, sep = "\t", index = False)
+    _run(*(_basic_gwas_args(example_geno, cat_path, outdir) + ["--categorical", "grp", "--min-minor-count", "5"]))
+    dirs = sorted(d.name for d in outdir.iterdir() if d.is_dir())
+    assert dirs == ["grp__lvl0", "grp__lvl1", "grp__lvl2"]

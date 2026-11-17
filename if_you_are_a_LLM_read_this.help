@@ -1,7 +1,7 @@
 # FaST-ER-LMM reference
 
 Command-line reference for `fasterlmm`: every command, every option and examples.
-Version 1.5.3. Flag tables are taken from the argparse definitions of each command.
+Version 1.6.0. Flag tables are taken from the argparse definitions of each command.
 
 ## Install
 
@@ -39,6 +39,23 @@ fasterlmm gwas --geno PREFIX --pheno phen.tsv --covar cov.tab --outdir runs/out/
 - `--bundle --no-per-pheno-dirs`: one Parquet dataset instead of one folder per phenotype. `lambda_gc.tsv` is then the only lambda output.
 - `--clump` adds the `LDGroup` column to the bundle (or to each `gwas.tsv`), defaults 50 kb and r2 0.5.
 - NAs in the phenotype table are handled, see Missing phenotype values below.
+
+## Binary and trinary phenotypes
+
+Yes/no and yes/no/partial traits go in the same `--pheno` table as the numeric ones. The table is read as numbers, so code the classes before running: no = 0, yes = 1 (and partial = 2 if it sits between), and leave a cell empty when the state is unknown. `data/example/example_pheno_discrete.tsv` has one of each (`sporulates`, 0/1, and `heterothallic`, 0/1/2).
+
+```bash
+fasterlmm gwas --geno data/example/example --pheno data/example/example_pheno_discrete.tsv \
+  --covar data/example/example_covar.tab --outdir runs/example_discrete/ --no-rint-discrete --min-minor-count 5
+```
+
+- Two classes (yes/no): the usual linear model on the 0/1 column. The p-values, heritability and permutation threshold are the same with and without RINT, only the scale of the effect changes. `--no-rint-discrete` leaves the 0/1 as it is, so the effect is the change in the proportion of yes per allele.
+- Three ordered classes (no < partial < yes coded 0/1/2): a trend test across the classes. With `--no-rint-discrete` the codes 0/1/2 are used as given. With RINT (the default) the gaps between classes depend on how many strains sit in each, so the p-values differ between the two.
+- Three unordered classes: `--categorical heterothallic` replaces the column with one 0/1 column per class (`heterothallic__lvl0`, `__lvl1`, `__lvl2`), each scanned on its own, never RINT-transformed. A column with two classes gives a single indicator. Each indicator has its own permutation threshold, so across the classes of one trait divide the threshold by their number (Bonferroni).
+- Columns with 2 or 3 distinct values are RINT-transformed by default like every other phenotype (same behaviour as before), the run prints how many there are.
+- `--missing-code -9` reads -9 as missing (PLINK style files). Without it, a 2-3 class column holding -9 that is left untransformed stops the run, since -9 would count as a real class.
+- `--min-minor-count 10` (`gwas`): a left-untransformed 0/1(/2) column is skipped when, after matching strains, it has one class only or its rarest class has fewer than this many strains. A constant column would otherwise scan as noise.
+- Caveats: this is the linear model on 0/1 codes, not a logistic model. Fewer than about 5% yes (or no) makes the p-values unreliable at rare variants, filter on minor allele count. Heritability is on the observed 0/1 scale; on the liability scale it is h2 x K(1-K) / phi(z)^2, K the fraction of yes and phi(z) the normal density at the K quantile.
 
 ## Input formats
 
@@ -78,6 +95,10 @@ Defaults worth knowing: LOCO on, rank-based inverse normal transform (Blom) of e
 | `--phenos-per-job INT` | `256` | real phenos packed into one gpu scan, gpu cols = this x (1 + n_perm). bigger amortizes the per-chromosome eigendecomposition over more phenos, smaller trims gpu memory |
 | `--write-workers INT` |  | writer threads for the per-pheno output, which run off the gpu thread so the next batch can scan while this one writes. left unset it fills the core allocation, the cores this job can see split across the gpu workers sharing the node |
 | `--rint / --no-rint` | `True` | Blom rank-based inverse normal transform on each pheno column, ON by default (use --no-rint to disable) |
+| `--rint-discrete / --no-rint-discrete` | `True` | also RINT the columns with 2-3 distinct values (binary / trinary), ON for parity with earlier runs. --no-rint-discrete leaves them as raw 0/1(/2) numbers: same p for 2 classes (only beta rescales), different p for 3 |
+| `--categorical NAMES` |  | comma list of unordered categorical phenos, each replaced by one-vs-rest 0/1 indicators named `name__lvl<v>` (2 classes give one indicator), never RINT-transformed |
+| `--missing-code FLOAT` |  | pheno value read as missing, e.g. -9 for PLINK style files. Needed when a left-untransformed 2-3 class column holds that code |
+| `--min-minor-count INT` | `10` | left-untransformed 0/1(/2) phenos whose rarest class has fewer strains than this (after matching strains, per NA group) are skipped, a constant or near constant column would scan as noise |
 | `--seed INT` | `19930909` |  |
 | `--device` | `cuda` | cuda (auto-dispatch across visible GPUs), cuda:N (single device), mps (apple silicon gpu, runs float32), or cpu |
 | `--shard` |  | X/N to process only the X-th of N pheno shards (explicit, e.g. slurm-array) |
@@ -178,6 +199,9 @@ fasterlmm extreme --geno data/bigN --pheno phen.tsv --outdir runs/bigN/ \
 | `--resident` | `auto` | hold the standardised genotype resident when N x M fits ram (auto, the default), force on, or always stream (off). resident decodes once insted of re-streaming every pheno batch |
 | `--write-workers INT` |  | writer threads, unset fills the core allocation |
 | `--rint / --no-rint` | `True` | Blom rank-based inverse normal transform per pheno, ON by default |
+| `--rint-discrete / --no-rint-discrete` | `True` | also RINT the columns with 2-3 distinct values (binary / trinary), ON for parity with earlier runs. --no-rint-discrete leaves them as raw 0/1(/2) numbers: same p for 2 classes (only beta rescales), different p for 3 |
+| `--categorical NAMES` |  | comma list of unordered categorical phenos, each replaced by one-vs-rest 0/1 indicators named `name__lvl<v>` (2 classes give one indicator), never RINT-transformed |
+| `--missing-code FLOAT` |  | pheno value read as missing, e.g. -9 for PLINK style files. Needed when a left-untransformed 2-3 class column holds that code |
 | `--float64` |  | run in float64 (default float32, the scale setting) |
 | `--seed INT` | `19930909` |  |
 | `--device` | `cuda` | cuda (auto-dispatch across visible GPUs), cuda:N (single device), cpu, or mps |
@@ -279,6 +303,7 @@ Style: alternating skyblue and navy chromosomes, red dashed permutation threshol
 | Kinship from a different variant set | `gwas --kinship-geno PREFIX` |
 | Group the significant variants by LD per phenotype | `gwas --clump` (`--clump-window-kb`, `--clump-r2`, `--clump-p`) |
 | Phenotype table with missing values | nothing, NAs are grouped by pattern automatically |
+| Yes/no or yes/no/partial phenotype | code as 0/1(/2), `--no-rint-discrete` for raw codes, `--categorical NAME` if unordered |
 | Very large N, dense kinship does not fit | `extreme`, optionally `--grm PREFIX` |
 | Many phenotypes, several GPUs, one machine | `--device cuda` (auto-dispatch) |
 | Cluster array | `--shard X/N` + `--bundle`, then `fasterlmm concat OUTDIR` |
@@ -296,5 +321,6 @@ Style: alternating skyblue and navy chromosomes, red dashed permutation threshol
 - `--dry-run`, `--kinship-geno`, `--loco / --no-loco` exist on `gwas` only (extreme is always LOCO). `--grm`, `--grm-k`, `--block-size`, `--resident`, `--float64` exist on `extreme` only. Phenotype selection, permutation, bundle, shard, device and writer flags are shared.
 - Defaults baked in: seed 19930909, 100 permutations, RINT on, LOCO on, permutation quantile 0.05.
 - Scan math (single-K, LOCO, permutations) is locked to fastlmm parity: D = ncols(X), OLS regress-out, intercept column last, ML for h2, F-test p-value. Do not alter it without a parity check.
-- Not built yet: QQ plots, binary phenotypes.
+- Not built yet: QQ plots, a logistic model for binary phenotypes (0/1 columns use the linear model).
+- `--min-minor-count` exists on `gwas` only. `--rint-discrete`, `--categorical`, `--missing-code` are on both `gwas` and `extreme`.
 - `fasterlmm` resolves to whichever checkout the environment was installed from; verify with `fasterlmm.__file__`.
