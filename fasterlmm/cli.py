@@ -522,12 +522,13 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser(prog = "fasterlmm gwas", formatter_class = argparse.RawDescriptionHelpFormatter,
                                      description = "torch port of fastlmm GWAS with " "LOCO + perm threshold",
-                                     epilog = "yes/no or yes/no/partial phenotypes: code them 0/1(/2) in the pheno table "
-                                     "(empty cell = unknown).\n"
+                                     epilog = "yes/no or yes/no/partial phenotypes: write them as words or code them 0/1(/2) in the "
+                                     "pheno table (empty cell = unknown).\n"
+                                     "  other words, no known order  one 0/1 column per word, --levels sets an order\n"
                                      "  ordered (no < partial < yes)  --no-rint-discrete keeps the raw codes\n"
                                      "  unordered classes             --categorical NAME, one 0/1 column per class\n"
                                      "  plink style -9 for missing    --missing-code -9\n"
-                                     "example: data/example/example_pheno_discrete.tsv")
+                                     "examples: data/example/example_pheno_discrete.tsv, example_pheno_text.tsv")
     parser.add_argument("--geno", required = True, help = "plink BED prefix")
     parser.add_argument("--pheno", required = True, help = "wide phen tsv with Strain column")
     parser.add_argument("--kinship-geno", default = None, metavar = "PREFIX",

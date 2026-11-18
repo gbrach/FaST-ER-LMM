@@ -110,18 +110,24 @@ fasterlmm gwas \
 
 ## Binary and trinary phenotypes
 
-Yes/no and yes/no/partial traits go in the same `--pheno` table as the numeric ones. The table is read as numbers, so code the classes before running: no = 0, yes = 1 (and partial = 2 if it sits between), and leave a cell empty when the state is unknown. `data/example/example_pheno_discrete.tsv` has one of each (`sporulates`, 0/1, and `heterothallic`, 0/1/2).
+Yes/no and yes/no/partial traits go in the same `--pheno` table as the numeric ones. Write the classes as words (`yes`, `no`, `partial`) or code them as numbers: no = 0, yes = 1 (and partial = 2 if it sits between), and leave a cell empty when the state is unknown. `data/example/example_pheno_discrete.tsv` has one of each coded as numbers (`sporulates`, 0/1, and `heterothallic`, 0/1/2), `data/example/example_pheno_text.tsv` is the same data written as words plus an unordered `colour` column.
 
 ```bash
 fasterlmm gwas --geno data/example/example --pheno data/example/example_pheno_discrete.tsv \
   --covar data/example/example_covar.tab --outdir runs/example_discrete/ --no-rint-discrete --min-minor-count 5
 ```
 
-You can also write the classes as words instead of numbers. `yes`/`no`/`partial` (also true/false, present/absent, y/n and similar) are coded no < partial < yes automatically. Any other words (say `red`/`white`/`pink`) have no order, so each one becomes its own 0/1 column named after the word (`colour__red`), same as `--categorical`. To set an order yourself use `--levels "colour=white,pink,red"`. Empty, NA, unknown and `?` read as missing. Every run with text columns writes `pheno_codes.tsv` in the output folder (column, code, label, strain count, which column it became), so a positive effect reads as "more toward the last label".
+Text columns: words are coded on the fly, so the table can say `yes`/`no`/`partial` (also true/false, present/absent, y/n and similar, any case), coded no < partial < yes. Any other words (say `red`/`white`/`pink`) have no known order, so each one becomes its own 0/1 column named after the word (`colour__red`), the same as `--categorical`. `--levels "colour=white,pink,red"` sets an order yourself (low to high, several columns separated by `;`, every value in the column must be listed). Empty, NA, unknown, n/a, `?` and `-` read as missing. Every run with text columns writes `pheno_codes.tsv` in the output folder: column, code, label, strain count and which column the label became, so a positive effect on an ordered column reads as "more toward the last label".
+
+```bash
+fasterlmm gwas --geno data/example/example --pheno data/example/example_pheno_text.tsv \
+  --covar data/example/example_covar.tab --outdir runs/example_text/ --min-minor-count 5 \
+  --levels "sporulates=no,yes;heterothallic=no,partial,yes"
+```
 
 - Two classes (yes/no): the usual linear model on the 0/1 column. The p-values, heritability and permutation threshold are the same with and without RINT, only the scale of the effect changes. `--no-rint-discrete` leaves the 0/1 as it is, so the effect is the change in the proportion of yes per allele.
 - Three ordered classes (no < partial < yes coded 0/1/2): a trend test across the classes. With `--no-rint-discrete` the codes 0/1/2 are used as given. With RINT (the default) the gaps between classes depend on how many strains sit in each, so the p-values differ between the two.
-- Three unordered classes: `--categorical heterothallic` replaces the column with one 0/1 column per class (`heterothallic__lvl0`, `__lvl1`, `__lvl2`), each scanned on its own, never RINT-transformed. A column with two classes gives a single indicator. Each indicator has its own permutation threshold, so across the classes of one trait divide the threshold by their number (Bonferroni).
+- Three unordered classes: `--categorical heterothallic` replaces the column with one 0/1 column per class (`heterothallic__lvl0`, `__lvl1`, `__lvl2`, or `heterothallic__no`, `__partial`, `__yes` when the column is text), each scanned on its own, never RINT-transformed. A column with two classes gives a single indicator. Each indicator has its own permutation threshold, so across the classes of one trait divide the threshold by their number (Bonferroni).
 - Columns with 2 or 3 distinct values are RINT-transformed by default like every other phenotype (same behaviour as before), the run prints how many there are.
 - `--missing-code -9` reads -9 as missing (PLINK style files). Without it, a 2-3 class column holding -9 that is left untransformed stops the run, since -9 would count as a real class.
 - `--min-minor-count 10` (`gwas`): a left-untransformed 0/1(/2) column is skipped when, after matching strains, it has one class only or its rarest class has fewer than this many strains. A constant column would otherwise scan as noise.
@@ -361,3 +367,4 @@ FaST-ER-LMM builds on FaST-LMM, described in [Lippert et al. (2011), *Nature Met
 - [ ] Benchmark on H100 and H200, just for fun!
 - [x] MPS support: `--device mps` runs on Apple Silicon GPUs in float32.
 - [x] Binary and trinary phenotypes: 0/1(/2) columns, `--no-rint-discrete`, `--categorical`.
+- [x] Text phenotypes: yes/no/partial words coded on the fly, `--levels`, `pheno_codes.tsv`.

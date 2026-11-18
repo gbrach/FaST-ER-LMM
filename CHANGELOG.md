@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.2
+
+- Documentation for text phenotypes: README and command reference describe words as phenotype values, `--levels` and `pheno_codes.tsv`, and `data/example/example_pheno_text.tsv` is a runnable example.
+
 ## 1.6.1
 
 - Text phenotypes in `gwas` and `extreme`: columns holding words are coded on the fly. yes/no/partial style words get an automatic order, other words become one-vs-rest columns named after the word (`colour__red`), `--levels` sets an explicit order, and `pheno_codes.tsv` in the output folder maps codes back to the words.
