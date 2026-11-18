@@ -33,7 +33,7 @@ from fasterlmm.inflation import lambda_gc, merge_shard_tables, write_shard_table
 from fasterlmm.bundle import BUNDLE_FILENAME, BUNDLE_PARTS_DIRNAME, BundleWriter, merge_bundle_parts
 from fasterlmm.clump import ld_clump
 from fasterlmm.io import align_inputs, group_by_na, read_covar, read_phen, read_plink, subset_dataset
-from fasterlmm.normalize import RINT_FILENAME, degenerate_columns, prepare_pheno, write_rint_matrix
+from fasterlmm.normalize import CODEBOOK_FILENAME, RINT_FILENAME, parse_levels, write_codebook, degenerate_columns, prepare_pheno, write_rint_matrix
 from fasterlmm.perms import perm_threshold
 from fasterlmm.progress import write_status
 
@@ -192,9 +192,9 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
     print(f"{log_prefix}device {device}, loading inputs", file = sys.stderr, flush = True)
 
     geno = read_plink(args.geno)
-    pheno = read_phen(args.pheno)
+    pheno = read_phen(args.pheno, levels = parse_levels(args.levels))
     raw_names: set = set()
-    if args.rint or args.categorical or args.missing_code is not None:
+    if args.rint or args.categorical or args.missing_code is not None or pheno.codebook:
         # Blom RINT before alignment so the strain order doesn't matter -- rank-then-qnorm is invariant to row
         # permutation but applying here keeps the pipeline short
         # discrete columns (2-3 levels) stay RINT'd unless --no-rint-discrete, categorical ones are expanded to
@@ -207,6 +207,10 @@ def _run_scan(args: argparse.Namespace, shard_i: int | None, shard_n: int | None
         if shard_i in (None, 0) and not getattr(args, "dry_run", False):
             rint_path = write_rint_matrix(pheno.iid, pheno.names, pheno.Y, outdir / RINT_FILENAME)
             runinfo.update(outdir, shard_i, rint_matrix = str(rint_path))
+            # text phenos: code table so the betas can be read in words
+            book_path = write_codebook(info["codebook"], outdir / CODEBOOK_FILENAME)
+            if book_path:
+                print(f"text phenotype codes written to {book_path}", file = sys.stderr, flush = True)
     covar = read_covar(args.covar) if args.covar else None
     # mps cant touch float64 at all, so an apple-gpu run drops to float32 -- not
     # bit-for-bit with fastlmm anymore but well inside float noise.  cuda / cpu
@@ -571,6 +575,9 @@ def main() -> None:
                         "levels (only beta scale changes), different p for 3")
     parser.add_argument("--categorical", default = None, help = "comma list of unordered categorical pheno "
                         "columns, each expanded to one-vs-rest 0/1 indicators (name__lvl<v>) and left unRINT'd")
+    parser.add_argument("--levels", default = None, help = "order of text labels, low to high, for columns "
+                        "holding words: 'col=no,partial,yes;col2=low,high'. yes/no/partial style words need no "
+                        "--levels, any other text column is treated as unordered classes (--categorical)")
     parser.add_argument("--missing-code", type = float, default = None, help = "pheno value to read as missing, "
                         "e.g. -9 for plink style files. needed when a raw discrete column holds that code")
     parser.add_argument("--min-minor-count", type = int, default = 10, help = "raw discrete phenos whose minor "

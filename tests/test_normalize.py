@@ -210,3 +210,54 @@ def test_minus_nine_errors_unless_missing_code():
 def test_degenerate_columns():
     Y = np.column_stack([np.ones(40), np.r_[np.zeros(35), np.ones(5)], np.r_[np.zeros(20), np.ones(20)]])
     assert degenerate_columns(Y, 10).tolist() == [True, True, False]
+
+
+# text phenotypes -------
+
+def _text_table(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("Strain\tspor\thet\tcolour\n"
+                 "a\tyes\tno\tred\nb\tno\tpartial\twhite\nc\tYes\tyes\tred\nd\tunknown\tno\tpink\ne\tno\t\twhite\n")
+    return p
+
+
+def test_text_vocab_columns_become_ordered_codes(tmp_path):
+    from fasterlmm.io import read_phen
+    ph = read_phen(_text_table(tmp_path))
+    spor = ph.Y[:, ph.names.index("spor")]
+    het = ph.Y[:, ph.names.index("het")]
+    assert spor[0] == 1 and spor[1] == 0 and spor[2] == 1 and np.isnan(spor[3])
+    assert list(het[:3]) == [0, 1, 2] and np.isnan(het[4])
+    assert ph.codebook["spor"] == ["no", "yes"]
+    assert ph.codebook["het"] == ["no", "partial", "yes"]
+    # colour has no known order so it is flagged for the one-vs-rest expansion
+    assert ph.auto_categorical == ["colour"]
+
+
+def test_levels_override_gives_explicit_order(tmp_path):
+    from fasterlmm.io import read_phen
+    ph = read_phen(_text_table(tmp_path), levels = {"colour": ["white", "pink", "red"]})
+    assert ph.auto_categorical == []
+    assert ph.codebook["colour"] == ["white", "pink", "red"]
+    assert list(ph.Y[:, ph.names.index("colour")]) == [2, 0, 2, 1, 0]
+    with pytest.raises(ValueError, match = "not in --levels"):
+        read_phen(_text_table(tmp_path), levels = {"colour": ["white", "red"]})
+
+
+def test_prepare_pheno_names_indicators_by_label_and_builds_codebook(tmp_path):
+    from fasterlmm.io import read_phen
+    from fasterlmm.normalize import prepare_pheno, write_codebook
+    ph = read_phen(_text_table(tmp_path))
+    info = prepare_pheno(ph, rint = False)
+    assert "colour__red" in ph.names and "colour__white" in ph.names and "colour__pink" in ph.names
+    assert "colour" not in ph.names
+    out = write_codebook(info["codebook"], tmp_path / "pheno_codes.tsv")
+    txt = out.read_text()
+    assert "spor\t1\tyes\t2" in txt and "colour\t1\tred\t2" in txt
+
+
+def test_parse_levels():
+    from fasterlmm.normalize import parse_levels
+    assert parse_levels("a=no,yes; b=lo,mid,hi") == {"a": ["no", "yes"], "b": ["lo", "mid", "hi"]}
+    with pytest.raises(ValueError):
+        parse_levels("a")

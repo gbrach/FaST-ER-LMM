@@ -117,6 +117,8 @@ fasterlmm gwas --geno data/example/example --pheno data/example/example_pheno_di
   --covar data/example/example_covar.tab --outdir runs/example_discrete/ --no-rint-discrete --min-minor-count 5
 ```
 
+You can also write the classes as words instead of numbers. `yes`/`no`/`partial` (also true/false, present/absent, y/n and similar) are coded no < partial < yes automatically. Any other words (say `red`/`white`/`pink`) have no order, so each one becomes its own 0/1 column named after the word (`colour__red`), same as `--categorical`. To set an order yourself use `--levels "colour=white,pink,red"`. Empty, NA, unknown and `?` read as missing. Every run with text columns writes `pheno_codes.tsv` in the output folder (column, code, label, strain count, which column it became), so a positive effect reads as "more toward the last label".
+
 - Two classes (yes/no): the usual linear model on the 0/1 column. The p-values, heritability and permutation threshold are the same with and without RINT, only the scale of the effect changes. `--no-rint-discrete` leaves the 0/1 as it is, so the effect is the change in the proportion of yes per allele.
 - Three ordered classes (no < partial < yes coded 0/1/2): a trend test across the classes. With `--no-rint-discrete` the codes 0/1/2 are used as given. With RINT (the default) the gaps between classes depend on how many strains sit in each, so the p-values differ between the two.
 - Three unordered classes: `--categorical heterothallic` replaces the column with one 0/1 column per class (`heterothallic__lvl0`, `__lvl1`, `__lvl2`), each scanned on its own, never RINT-transformed. A column with two classes gives a single indicator. Each indicator has its own permutation threshold, so across the classes of one trait divide the threshold by their number (Bonferroni).
@@ -157,6 +159,7 @@ All phenotype columns are scanned by default. Select one with `--pheno-idx 0`, o
 | `--clump-r2 0.5` | r2 at or above which two variants are linked in the same group; default: 0.5. |
 | `--clump-p 1e-5` | Fixed p-value cutoff for the variants that get a group, instead of each phenotype's permutation threshold. |
 | `--no-rint` | Use phenotype values without the default rank-based inverse normal transform. |
+| `--levels` | Order of text labels, low to high, as `col=no,partial,yes;col2=low,high`. Only needed for words that are not plain yes/no/partial. |
 | `--no-rint-discrete` | Leave phenotype columns with 2 or 3 distinct values (yes/no, yes/no/partial) as raw numbers, see Binary and trinary phenotypes. |
 | `--categorical NAME[,NAME]` | Expand unordered categorical phenotypes into one 0/1 column per class. |
 | `--missing-code -9` | Read this phenotype value as missing. |

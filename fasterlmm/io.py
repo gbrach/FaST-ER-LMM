@@ -7,13 +7,15 @@ I don't think I'll need that so opening the Bed myself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 from torch import Tensor
+
+from fasterlmm.normalize import TEXT_NA, encode_text_column
 
 
 # INPUTS -------
@@ -43,6 +45,10 @@ class Phenotypes:
     iid: list[str]
     names: list[str]
     Y: np.ndarray
+    # text columns: name -> labels in code order (labels[k] is what code k stood for in the file), and the ones
+    # that had no known yes/no order and so go through the one-vs-rest expansion
+    codebook: dict = field(default_factory = dict)
+    auto_categorical: list = field(default_factory = list)
 
 
 def read_plink(prefix: str | Path, *, count_A1: bool = True) -> Genotypes:
@@ -61,18 +67,32 @@ def read_plink(prefix: str | Path, *, count_A1: bool = True) -> Genotypes:
                      pos = np.asarray(bed.pos[:, 2]))
 
 
-def read_phen(path: str | Path) -> Phenotypes:
+def read_phen(path: str | Path, levels: dict | None = None) -> Phenotypes:
     """
     Reading a wide phen tsv: first col 'Strain', rest are pheno values, one row per strain.
+    Text columns (yes/no, absent/present, ...) are coded to numbers here and the labels kept in codebook, levels
+    is {column: [label, ...]} in low to high order for the ones that need an explicit order
     Not plink .phen layout (FID IID pheno).
     fastlmm's _pheno_fixup handles plink format and that's fine for one-pheno runs.
     But most of what I'll throw at this is 6k-pheno transcriptomics tables, wide tsv is easier
     """
-    df = pd.read_csv(path, sep = "\t")
+    df = pd.read_csv(path, sep = "\t", na_values = TEXT_NA)
     iid = df["Strain"].astype(str).tolist()
     names = list(df.columns[1:])
+    codebook, auto_cat = {}, []
+    for n in names:
+        if pd.api.types.is_numeric_dtype(df[n]):
+            continue
+        num = pd.to_numeric(df[n], errors = "coerce")
+        if num.isna().sum() == df[n].isna().sum():
+            df[n] = num  # numbers that pandas read as text only because of a stray blank or space
+            continue
+        df[n], labels, ordered = encode_text_column(df[n], n, (levels or {}).get(n))
+        codebook[n] = labels
+        if not ordered:
+            auto_cat.append(n)
     Y = df[names].to_numpy(dtype = np.float64)
-    return Phenotypes(iid = iid, names = names, Y = Y)
+    return Phenotypes(iid = iid, names = names, Y = Y, codebook = codebook, auto_categorical = auto_cat)
 
 
 @dataclass

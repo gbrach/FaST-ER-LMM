@@ -36,7 +36,7 @@ from fasterlmm.extreme_scan import loco_scan_resident, loco_scan_streamed
 from fasterlmm.io import read_covar, read_phen
 from fasterlmm.io_stream import (open_aligned_bed, read_all_standardised, read_grm_factor, select_grm_markers,
                                  stream_genotype_var)
-from fasterlmm.normalize import RINT_FILENAME, prepare_pheno, write_rint_matrix
+from fasterlmm.normalize import CODEBOOK_FILENAME, RINT_FILENAME, parse_levels, write_codebook, prepare_pheno, write_rint_matrix
 from fasterlmm.progress import write_status
 
 
@@ -150,17 +150,21 @@ def _run_extreme(args: argparse.Namespace, shard_i: int | None, shard_n: int | N
                                "shard": f"{shard_i}/{shard_n}" if shard_n else None})
     dtype = torch.float64 if args.float64 else torch.float32
 
-    pheno = read_phen(args.pheno)
-    if args.rint or args.categorical or args.missing_code is not None:
+    pheno = read_phen(args.pheno, levels = parse_levels(args.levels))
+    if args.rint or args.categorical or args.missing_code is not None or pheno.codebook:
         # Blom RINT before alignment, rank-then-qnorm is row-order invariant. discrete / categorical handling as in
         # the gwas cli, but the degenerate-column guard is only in gwas for now
         cats = [c for c in args.categorical.split(",") if c] if args.categorical else None
-        prepare_pheno(pheno, rint = args.rint, rint_discrete = args.rint_discrete, categorical = cats,
-                      missing_code = args.missing_code)
+        info = prepare_pheno(pheno, rint = args.rint, rint_discrete = args.rint_discrete, categorical = cats,
+                             missing_code = args.missing_code)
         # the transformed matrix rides along with the results, written once (shard 0 when sharded)
         if shard_i in (None, 0) and not getattr(args, "dry_run", False):
             rint_path = write_rint_matrix(pheno.iid, pheno.names, pheno.Y, outdir / RINT_FILENAME)
             runinfo.update(outdir, shard_i, rint_matrix = str(rint_path))
+            # text phenos: code table so the betas can be read in words
+            book_path = write_codebook(info["codebook"], outdir / CODEBOOK_FILENAME)
+            if book_path:
+                print(f"text phenotype codes written to {book_path}", file = sys.stderr, flush = True)
     covar = read_covar(args.covar) if args.covar else None
 
     common = set(pheno.iid)
@@ -399,6 +403,9 @@ def main() -> None:
                         "them as raw 0/1(/2) numbers")
     parser.add_argument("--categorical", default = None, help = "comma list of unordered categorical pheno "
                         "columns, expanded to one-vs-rest 0/1 indicators and left unRINT'd")
+    parser.add_argument("--levels", default = None, help = "order of text labels, low to high, for columns "
+                        "holding words: 'col=no,partial,yes;col2=low,high'. yes/no/partial style words need no "
+                        "--levels, any other text column is treated as unordered classes (--categorical)")
     parser.add_argument("--missing-code", type = float, default = None, help = "pheno value to read as missing, "
                         "e.g. -9")
     parser.add_argument("--float64", action = "store_true",
